@@ -11,12 +11,23 @@ import androidx.core.app.NotificationManagerCompat
 
 object NotificationChannels {
     const val RESCAN_ID = "rescan_reminder"
+    const val UPDATE_ID = "app_updates"
     private const val RING_PREFIX = "adhan_ring_v"
 
     fun ensureRescan(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(RESCAN_ID) == null) {
             manager.createNotificationChannel(NotificationChannel(RESCAN_ID, "تذكير انتهاء الجدول", NotificationManager.IMPORTANCE_DEFAULT))
+        }
+    }
+
+    fun ensureUpdate(context: Context) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        if (manager.getNotificationChannel(UPDATE_ID) == null) {
+            manager.createNotificationChannel(NotificationChannel(UPDATE_ID, "تحديثات التطبيق", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "إشعارات إصدارات مذكّر الأذان الجديدة من GitHub"
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
+            })
         }
     }
 

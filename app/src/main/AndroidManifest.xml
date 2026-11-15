@@ -27,6 +27,7 @@
         <activity android:name=".ui.screens.ManufacturerGuideActivity" android:exported="false" />
         <receiver android:name=".scheduling.AlarmReceiver" android:exported="false" />
         <receiver android:name=".scheduling.RescanReceiver" android:exported="false" />
+        <receiver android:name=".update.UpdateReceiver" android:exported="false" />
         <receiver android:name="androidx.profileinstaller.ProfileInstallReceiver" tools:node="remove" tools:ignore="MissingClass" />
         <receiver android:name=".scheduling.BootReceiver" android:exported="true">
             <intent-filter>
