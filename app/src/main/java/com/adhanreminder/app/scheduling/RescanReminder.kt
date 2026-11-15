@@ -2,6 +2,7 @@ package com.adhanreminder.app.scheduling
 
 import android.app.AlarmManager
 import android.app.PendingIntent
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
@@ -20,6 +21,7 @@ object RescanReminder {
     private const val REQUEST_CODE = 900001
     const val ACTION = "com.adhanreminder.app.RESCAN_REMINDER"
 
+    @SuppressLint("MissingPermission")
     suspend fun schedule(context: Context, repository: AdhanRepository, settings: SettingsRepository, scheduleId: Long, days: List<PrayerDay>) {
         cancel(context)
         val last = days.mapNotNull { runCatching { LocalDate.parse(it.gregorianDate) }.getOrNull() }.maxOrNull() ?: return

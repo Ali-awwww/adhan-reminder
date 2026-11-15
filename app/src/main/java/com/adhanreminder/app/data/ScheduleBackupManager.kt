@@ -8,6 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.ByteArrayOutputStream
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -31,7 +32,20 @@ class ScheduleBackupManager(private val context: Context) {
     }
 
     fun import(input: InputStream): ImportedSchedule {
-        val envelope = JSONObject(input.use { it.readBytes().toString(Charsets.UTF_8) })
+        val bytes = input.use { stream ->
+            val buffer = ByteArray(8192)
+            val output = ByteArrayOutputStream()
+            var total = 0
+            while (true) {
+                val read = stream.read(buffer)
+                if (read == -1) break
+                total += read
+                require(total <= MAX_BACKUP_BYTES) { "النسخة الاحتياطية أكبر من الحد المسموح" }
+                output.write(buffer, 0, read)
+            }
+            output.toByteArray()
+        }
+        val envelope = JSONObject(bytes.toString(Charsets.UTF_8))
         require(envelope.optString("format") == "adhan-reminder-encrypted-v1") { "نسخة احتياطية غير مدعومة" }
         val iv = Base64.decode(envelope.getString("iv"), Base64.DEFAULT)
         val encrypted = Base64.decode(envelope.getString("data"), Base64.DEFAULT)
@@ -52,6 +66,8 @@ class ScheduleBackupManager(private val context: Context) {
         generator.init(android.security.keystore.KeyGenParameterSpec.Builder(alias, android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or android.security.keystore.KeyProperties.PURPOSE_DECRYPT).setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE).build())
         return generator.generateKey()
     }
+
+    companion object { private const val MAX_BACKUP_BYTES = 2 * 1024 * 1024 }
 }
 
 data class BackupDay(val gregorianDate: String, val hijriDay: Int?, val fajr: String, val dhuhr: String, val asr: String, val maghrib: String, val isha: String, val reviewFlagsJson: String)

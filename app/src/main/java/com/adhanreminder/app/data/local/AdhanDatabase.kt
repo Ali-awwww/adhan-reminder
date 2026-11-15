@@ -30,7 +30,7 @@ abstract class AdhanDatabase : RoomDatabase() {
                     "adhan_reminder.db",
                 ).apply {
                     if (com.adhanreminder.app.BuildConfig.DEBUG) {
-                        fallbackToDestructiveMigration()
+                        fallbackToDestructiveMigration(dropAllTables = true)
                     }
                     addMigrations(*DatabaseMigrations.all())
                 }.build().also { INSTANCE = it }

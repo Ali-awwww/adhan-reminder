@@ -2,6 +2,7 @@ package com.adhanreminder.app.scheduling
 
 import android.app.AlarmManager
 import android.app.PendingIntent
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import com.adhanreminder.app.BuildConfig
@@ -113,6 +114,7 @@ class SchedulingEngine(
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
+    @SuppressLint("MissingPermission")
     private fun scheduleAlarm(alarm: ScheduledAlarm) {
         val operation = alarmPendingIntent(alarm)
         val show = PendingIntent.getActivity(
