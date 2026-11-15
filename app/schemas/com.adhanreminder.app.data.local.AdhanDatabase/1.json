@@ -1,0 +1,255 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "ed9f90d7d8e113c2ec1a2e7cd2dc446f",
+    "entities": [
+      {
+        "tableName": "month_schedules",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `hijriMonthLabel` TEXT NOT NULL, `createdAtMillis` INTEGER NOT NULL, `status` TEXT NOT NULL, `sourceImagePath` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hijriMonthLabel",
+            "columnName": "hijriMonthLabel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMillis",
+            "columnName": "createdAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceImagePath",
+            "columnName": "sourceImagePath",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "prayer_days",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `scheduleId` INTEGER NOT NULL, `gregorianDate` TEXT NOT NULL, `hijriDay` INTEGER, `fajr` TEXT NOT NULL, `dhuhr` TEXT NOT NULL, `asr` TEXT NOT NULL, `maghrib` TEXT NOT NULL, `isha` TEXT NOT NULL, `reviewFlagsJson` TEXT NOT NULL, FOREIGN KEY(`scheduleId`) REFERENCES `month_schedules`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduleId",
+            "columnName": "scheduleId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gregorianDate",
+            "columnName": "gregorianDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hijriDay",
+            "columnName": "hijriDay",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "fajr",
+            "columnName": "fajr",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dhuhr",
+            "columnName": "dhuhr",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "asr",
+            "columnName": "asr",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maghrib",
+            "columnName": "maghrib",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isha",
+            "columnName": "isha",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reviewFlagsJson",
+            "columnName": "reviewFlagsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_prayer_days_scheduleId",
+            "unique": false,
+            "columnNames": [
+              "scheduleId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_prayer_days_scheduleId` ON `${TABLE_NAME}` (`scheduleId`)"
+          },
+          {
+            "name": "index_prayer_days_gregorianDate",
+            "unique": false,
+            "columnNames": [
+              "gregorianDate"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_prayer_days_gregorianDate` ON `${TABLE_NAME}` (`gregorianDate`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "month_schedules",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "scheduleId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "scheduled_alarms",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `scheduleId` INTEGER NOT NULL, `prayerKey` TEXT NOT NULL, `gregorianDate` TEXT NOT NULL, `triggerAtMillis` INTEGER NOT NULL, `requestCode` INTEGER NOT NULL, `fired` INTEGER NOT NULL, FOREIGN KEY(`scheduleId`) REFERENCES `month_schedules`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduleId",
+            "columnName": "scheduleId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prayerKey",
+            "columnName": "prayerKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gregorianDate",
+            "columnName": "gregorianDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "triggerAtMillis",
+            "columnName": "triggerAtMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requestCode",
+            "columnName": "requestCode",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fired",
+            "columnName": "fired",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_scheduled_alarms_scheduleId",
+            "unique": false,
+            "columnNames": [
+              "scheduleId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_scheduled_alarms_scheduleId` ON `${TABLE_NAME}` (`scheduleId`)"
+          },
+          {
+            "name": "index_scheduled_alarms_gregorianDate",
+            "unique": false,
+            "columnNames": [
+              "gregorianDate"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_scheduled_alarms_gregorianDate` ON `${TABLE_NAME}` (`gregorianDate`)"
+          },
+          {
+            "name": "index_scheduled_alarms_scheduleId_requestCode",
+            "unique": true,
+            "columnNames": [
+              "scheduleId",
+              "requestCode"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_scheduled_alarms_scheduleId_requestCode` ON `${TABLE_NAME}` (`scheduleId`, `requestCode`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "month_schedules",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "scheduleId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ed9f90d7d8e113c2ec1a2e7cd2dc446f')"
+    ]
+  }
+}
