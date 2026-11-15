@@ -34,7 +34,8 @@ object UpdateChecker {
         if (!NotificationChannels.canPost(context)) return@withContext
 
         NotificationChannels.ensureUpdate(context)
-        val openRelease = PendingIntentFactory.releasePage(context, release.htmlUrl)
+        val openRelease = release.apkUrl?.let { PendingIntentFactory.download(context, it, release.tagName) }
+            ?: PendingIntentFactory.releasePage(context, release.htmlUrl)
         val notification = NotificationCompat.Builder(context, NotificationChannels.UPDATE_ID)
             .setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle("يتوفر إصدار جديد من مذكّر الأذان")
@@ -75,6 +76,14 @@ object UpdateChecker {
             Release(
                 tagName = json.optString("tag_name").trim(),
                 htmlUrl = json.optString("html_url").trim(),
+                apkUrl = json.optJSONArray("assets")?.let { assets ->
+                    (0 until assets.length())
+                        .asSequence()
+                        .map { assets.getJSONObject(it) }
+                        .firstOrNull { it.optString("name").endsWith(".apk", ignoreCase = true) }
+                        ?.optString("browser_download_url")
+                        ?.takeIf { it.startsWith("https://github.com/") }
+                },
                 draft = json.optBoolean("draft"),
                 prerelease = json.optBoolean("prerelease"),
             ).takeIf { it.tagName.isNotBlank() && it.htmlUrl.startsWith("https://github.com/") }
@@ -102,10 +111,20 @@ object UpdateChecker {
         return parts.map { it.toInt() }.let { it + List(4 - it.size) { 0 } }
     }
 
-    private data class Release(val tagName: String, val htmlUrl: String, val draft: Boolean, val prerelease: Boolean)
+    private data class Release(val tagName: String, val htmlUrl: String, val apkUrl: String?, val draft: Boolean, val prerelease: Boolean)
 }
 
 private object PendingIntentFactory {
+    fun download(context: Context, url: String, tagName: String): android.app.PendingIntent = android.app.PendingIntent.getBroadcast(
+        context,
+        700003,
+        Intent(context, UpdateDownloadReceiver::class.java)
+            .setAction(UpdateDownloadReceiver.ACTION)
+            .putExtra(UpdateDownloadReceiver.EXTRA_URL, url)
+            .putExtra(UpdateDownloadReceiver.EXTRA_TAG, tagName),
+        android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
     fun releasePage(context: Context, url: String): android.app.PendingIntent {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return android.app.PendingIntent.getActivity(

@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" tools:node="remove" />
     <uses-permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" tools:node="remove" />
 
@@ -28,6 +29,12 @@
         <receiver android:name=".scheduling.AlarmReceiver" android:exported="false" />
         <receiver android:name=".scheduling.RescanReceiver" android:exported="false" />
         <receiver android:name=".update.UpdateReceiver" android:exported="false" />
+        <receiver android:name=".update.UpdateDownloadReceiver" android:exported="false" />
+        <receiver android:name=".update.UpdateDownloadCompleteReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
         <receiver android:name="androidx.profileinstaller.ProfileInstallReceiver" tools:node="remove" tools:ignore="MissingClass" />
         <receiver android:name=".scheduling.BootReceiver" android:exported="true">
             <intent-filter>
