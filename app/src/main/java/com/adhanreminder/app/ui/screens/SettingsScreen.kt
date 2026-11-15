@@ -26,6 +26,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -40,6 +42,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.adhanreminder.app.AdhanApplication
 import com.adhanreminder.app.data.ApiKeyVerifier
+import com.adhanreminder.app.data.ScheduleBackupManager
+import com.adhanreminder.app.data.local.MonthSchedule
+import com.adhanreminder.app.data.local.PrayerDay
+import com.adhanreminder.app.data.local.ScheduleStatus
 import com.adhanreminder.app.domain.FailureReason
 import com.adhanreminder.app.domain.KeyCheckResult
 import com.adhanreminder.app.domain.KeyFormat
@@ -79,44 +85,74 @@ fun SettingsScreen(onOpenDeviceCheck: () -> Unit, onClearData: () -> Unit) {
     var checking by remember { mutableStateOf(false) }
     var transientFailure by remember { mutableStateOf<KeyCheckResult.Failed?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var tabIndex by remember { mutableStateOf(0) }
+    var backupMessage by remember { mutableStateOf<String?>(null) }
+    val demoMode by settings.demoMode.collectAsState(initial = false)
     val soundPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val uri = if (Build.VERSION.SDK_INT >= 33) result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java) else @Suppress("DEPRECATION") result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
             scope.launch { settings.setAlarmSoundUri(uri?.toString()) }
         }
     }
+    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) scope.launch {
+            runCatching {
+                val schedule = app.repository.getLatestApprovedSchedule() ?: error("لا يوجد جدول معتمد")
+                val days = app.repository.getPrayerDays(schedule.id)
+                val output = context.contentResolver.openOutputStream(uri) ?: error("تعذر فتح الملف")
+                ScheduleBackupManager(context).export(schedule, days, output)
+            }.onSuccess { backupMessage = "تم تصدير نسخة مشفّرة من الجدول" }.onFailure { backupMessage = it.message ?: "تعذر التصدير" }
+        }
+    }
+    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch {
+            runCatching {
+                val input = context.contentResolver.openInputStream(uri) ?: error("تعذر فتح الملف")
+                val imported = ScheduleBackupManager(context).import(input)
+                val id = app.repository.insertSchedule(MonthSchedule(hijriMonthLabel = imported.hijriMonthLabel, createdAtMillis = imported.createdAtMillis, status = ScheduleStatus.DRAFT))
+                app.repository.insertPrayerDays(imported.days.map { day -> PrayerDay(scheduleId = id, gregorianDate = day.gregorianDate, hijriDay = day.hijriDay, fajr = day.fajr, dhuhr = day.dhuhr, asr = day.asr, maghrib = day.maghrib, isha = day.isha, reviewFlagsJson = day.reviewFlagsJson) })
+            }.onSuccess { backupMessage = "تم استيراد النسخة كمسودة للمراجعة" }.onFailure { backupMessage = it.message ?: "تعذر الاستيراد" }
+        }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("الإعدادات", style = MaterialTheme.typography.titleLarge)
-        SettingStepper("التنبيه قبل الأذان", reminder, 1..60) { scope.launch { settings.setReminderOffsetMinutes(it) } }
-        SettingStepper("الفاصل قبل الفجر المكتوب", gap, 0..60) { scope.launch { settings.setFajrGapMinutes(it) } }
-        Text("الفجر: التنبيه قبل الأذان الأول بـ${gap + reminder} دقيقة", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        HorizontalDivider()
-        SettingStepper("التذكير بتصوير جدول جديد قبل النهاية", rescan, 1..7) { scope.launch { settings.setRescanReminderDays(it) } }
-        HorizontalDivider()
-        SettingSwitch("اهتزاز المنبه", vibrate) { scope.launch { settings.setAlarmVibrate(it) } }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("صوت المنبه"); OutlinedButton(onClick = { soundPicker.launch(Intent(RingtoneManager.ACTION_RINGTONE_PICKER).putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM).putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, sound?.let(Uri::parse))) }) { Text("اختيار") } }
-        HorizontalDivider()
-        SettingSwitch("الوضع الداكن", dark) { scope.launch { settings.setDarkTheme(it) } }
-        HorizontalDivider()
-        Text("مفتاح API", style = MaterialTheme.typography.titleMedium)
-        KeyStatusPanel(keyStatus, keyReason, keyFormat, keyModel, verifiedAt, storedKey, transientFailure, onRetry = { editing = true }, onCopyReport = { report ->
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("تقرير تشخيصي", report))
-        })
-        if (!editing && storedKey.isNotBlank()) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryButton("تغيير المفتاح", { editing = true }, modifier = Modifier.weight(1f))
-                TextButton(onClick = { confirmDelete = true }, modifier = Modifier.weight(1f)) { Text("حذف المفتاح") }
+        TabRow(selectedTabIndex = tabIndex) { listOf("المفتاح", "التنبيهات", "المظهر", "الجهاز والبيانات").forEachIndexed { index, label -> Tab(selected = tabIndex == index, onClick = { tabIndex = index }, text = { Text(label) }) } }
+        when (tabIndex) {
+            0 -> {
+                Text("مفتاح API", style = MaterialTheme.typography.titleMedium)
+                KeyStatusPanel(keyStatus, keyReason, keyFormat, keyModel, verifiedAt, storedKey, transientFailure, onRetry = { editing = true }, onCopyReport = { report ->
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("تقرير تشخيصي", report))
+                })
+                if (!editing && storedKey.isNotBlank()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { SecondaryButton("تغيير المفتاح", { editing = true }, modifier = Modifier.weight(1f)); TextButton(onClick = { confirmDelete = true }, modifier = Modifier.weight(1f)) { Text("حذف المفتاح") } }
+                else {
+                    OutlinedTextField(value = key, onValueChange = { if (it.length <= 256) key = it }, modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 3, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text), label = { Text("الصق مفتاح Gemini") })
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { PrimaryButton(if (checking) "جارٍ التحقق" else "تحقق واحفظ", { scope.launch { checking = true; transientFailure = null; val result = ApiKeyVerifier().verifyOnce(key); checking = false; when (result) { is KeyCheckResult.Ok -> { settings.saveVerifiedApiKey(key, "OK_READY", "", result.format.code, result.model, result.verifiedAtMillis); editing = false }; is KeyCheckResult.Warning -> { settings.saveVerifiedApiKey(key, "QUOTA_LIMITED", result.reason.code, result.format.code, result.model, result.verifiedAtMillis); editing = false }; is KeyCheckResult.Failed -> transientFailure = result } } }, !checking, Modifier.weight(1f)); TextButton(onClick = { key = storedKey; transientFailure = null; editing = false }, enabled = !checking, modifier = Modifier.weight(.5f)) { Text("إلغاء") } }
+                }
             }
-        } else {
-            OutlinedTextField(value = key, onValueChange = { if (it.length <= 256) key = it }, modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 3, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text), label = { Text("الصق مفتاح Gemini") })
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PrimaryButton(if (checking) "جارٍ التحقق" else "تحقق واحفظ", { scope.launch { checking = true; transientFailure = null; val result = ApiKeyVerifier().verifyOnce(key); checking = false; when (result) { is KeyCheckResult.Ok -> { settings.saveVerifiedApiKey(key, "OK_READY", "", result.format.code, result.model, result.verifiedAtMillis); editing = false }; is KeyCheckResult.Warning -> { settings.saveVerifiedApiKey(key, "QUOTA_LIMITED", result.reason.code, result.format.code, result.model, result.verifiedAtMillis); editing = false }; is KeyCheckResult.Failed -> transientFailure = result } } }, !checking, Modifier.weight(1f))
-                TextButton(onClick = { key = storedKey; transientFailure = null; editing = false }, enabled = !checking, modifier = Modifier.weight(.5f)) { Text("إلغاء") }
+            1 -> {
+                SettingStepper("التنبيه قبل الأذان", reminder, 1..60) { scope.launch { settings.setReminderOffsetMinutes(it) } }
+                SettingStepper("الفاصل قبل الفجر المكتوب", gap, 0..60) { scope.launch { settings.setFajrGapMinutes(it) } }
+                Text("الفجر: التنبيه قبل الأذان الأول بـ${gap + reminder} دقيقة", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                HorizontalDivider()
+                SettingStepper("التذكير بتصوير جدول جديد قبل النهاية", rescan, 1..7) { scope.launch { settings.setRescanReminderDays(it) } }
+                SettingSwitch("اهتزاز المنبه", vibrate) { scope.launch { settings.setAlarmVibrate(it) } }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("صوت المنبه"); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { OutlinedButton(onClick = { soundPicker.launch(Intent(RingtoneManager.ACTION_RINGTONE_PICKER).putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM).putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, sound?.let(Uri::parse))) }) { Text("اختيار") }; TextButton(onClick = { sound?.let { RingtoneManager.getRingtone(context, Uri.parse(it))?.play() } }) { Text("اختبار") } } }
+            }
+            2 -> {
+                SettingSwitch("الوضع الداكن", dark) { scope.launch { settings.setDarkTheme(it) } }
+                HorizontalDivider()
+                SettingSwitch("الوضع التجريبي بدون شبكة", demoMode) { scope.launch { settings.setDemoMode(it) } }
+                Text("ينشئ جدولاً محلياً تجريبياً لتجربة المراجعة والتنقل دون إرسال صورة أو استخدام مفتاح Gemini.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            else -> {
+                Button(onClick = onOpenDeviceCheck, modifier = Modifier.fillMaxWidth()) { Text("فحص الجهاز") }
+                OutlinedButton(onClick = { exportPicker.launch("adhan-reminder-backup.bin") }, modifier = Modifier.fillMaxWidth()) { Text("تصدير نسخة احتياطية مشفّرة") }
+                OutlinedButton(onClick = { importPicker.launch(arrayOf("application/octet-stream", "application/json")) }, modifier = Modifier.fillMaxWidth()) { Text("استيراد نسخة احتياطية") }
+                backupMessage?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                OutlinedButton(onClick = onClearData, modifier = Modifier.fillMaxWidth()) { Text("مسح البيانات") }
             }
         }
-        Button(onClick = onOpenDeviceCheck, modifier = Modifier.fillMaxWidth()) { Text("فحص الجهاز") }
-        OutlinedButton(onClick = onClearData, modifier = Modifier.fillMaxWidth()) { Text("مسح البيانات") }
         Text("الإصدار ${com.adhanreminder.app.BuildConfig.VERSION_NAME} (${com.adhanreminder.app.BuildConfig.VERSION_CODE})", color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("حذف المفتاح؟") }, text = { Text("سيُحذف المفتاح وحالة التحقق من الجهاز.") }, confirmButton = { Button(onClick = { confirmDelete = false; scope.launch { settings.clearApiKey(); key = ""; editing = true } }) { Text("نعم، احذف") } }, dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("إلغاء") } })

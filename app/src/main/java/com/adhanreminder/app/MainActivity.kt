@@ -58,15 +58,16 @@ private fun AdhanReminderRoot() {
     val app = context.applicationContext as AdhanApplication
     val dark by app.settings.darkTheme.collectAsState(initial = true)
     val disclaimer by app.settings.disclaimerAccepted.collectAsState(initial = false)
+    val onboarding by app.settings.onboardingCompleted.collectAsState(initial = false)
     AdhanReminderTheme(darkTheme = dark) {
         androidx.compose.runtime.CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            AdhanReminderApp(app, disclaimer)
+                AdhanReminderApp(app, disclaimer, onboarding)
         }
     }
 }
 
 @Composable
-private fun AdhanReminderApp(app: AdhanApplication, disclaimerAccepted: Boolean) {
+private fun AdhanReminderApp(app: AdhanApplication, disclaimerAccepted: Boolean, onboardingCompleted: Boolean) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
@@ -91,7 +92,8 @@ private fun AdhanReminderApp(app: AdhanApplication, disclaimerAccepted: Boolean)
             composable("device_check") { DeviceCheckScreen(onBack = { nav.popBackStack() }) }
         }
     }
-    if (!disclaimerAccepted) AlertDialog(onDismissRequest = {}, title = { Text("قبل البدء") }, text = { Text("لقراءة الجدول تُرسل صورته إلى Google عبر مفتاح API الخاص بك. الجدول معلومات عامة. بعد القراءة تُحفظ البيانات داخل الجهاز.") }, confirmButton = { Button(onClick = { scope.launch { app.settings.setDisclaimerAccepted(true) } }) { Text("فهمت، متابعة") } })
+    if (!onboardingCompleted) AlertDialog(onDismissRequest = {}, title = { Text("مرحباً بك في مذكّر الأذان") }, text = { Text("صوّر جدول أوقات الصلاة مرة كل شهر، راجعه، ثم يعتمد التطبيق تنبيهاً قبل كل أذان. لا يستخدم التطبيق الموقع الجغرافي ولا يحسب الأوقات من الإنترنت.") }, confirmButton = { Button(onClick = { scope.launch { app.settings.setOnboardingCompleted(true) } }) { Text("ابدأ") } })
+    else if (!disclaimerAccepted) AlertDialog(onDismissRequest = {}, title = { Text("قبل البدء") }, text = { Text("لقراءة الجدول تُرسل صورته إلى Google عبر مفتاح API الخاص بك. الجدول معلومات عامة. بعد القراءة تُحفظ البيانات داخل الجهاز.") }, confirmButton = { Button(onClick = { scope.launch { app.settings.setDisclaimerAccepted(true) } }) { Text("فهمت، متابعة") } })
     if (clearConfirm) AlertDialog(onDismissRequest = { clearConfirm = false }, title = { Text("مسح البيانات") }, text = { Text("سيُحذف الجدول والمنبهات والصور المحفوظة.") }, confirmButton = { Button(onClick = { clearConfirm = false; apiConfirm = true; scope.launch { SchedulingEngine(context, app.repository, app.settings).cancelAll(); File(context.filesDir, "scans").deleteRecursively(); File(context.cacheDir, "images").deleteRecursively() } }) { Text("متابعة") } }, dismissButton = { TextButton(onClick = { clearConfirm = false }) { Text("إلغاء") } })
     if (apiConfirm) AlertDialog(onDismissRequest = { apiConfirm = false }, title = { Text("حذف مفتاح API أيضاً؟") }, text = { Text("يمكنك الاحتفاظ به أو حذفه مع باقي البيانات.") }, confirmButton = { Button(onClick = { apiConfirm = false; scope.launch { app.settings.resetForFullClear() } }) { Text("نعم، احذف") } }, dismissButton = { TextButton(onClick = { apiConfirm = false; scope.launch { app.settings.clearUserDataExceptKey() } }) { Text("لا") } })
 }

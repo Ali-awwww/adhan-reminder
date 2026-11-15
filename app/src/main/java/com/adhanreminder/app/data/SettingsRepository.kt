@@ -30,6 +30,9 @@ class SettingsRepository(private val context: Context) {
         val apiKeyFormat = stringPreferencesKey("apiKeyFormat")
         val apiKeyModel = stringPreferencesKey("apiKeyModel")
         val apiKeyLastVerifiedMillis = longPreferencesKey("apiKeyLastVerifiedMillis")
+        val onboardingCompleted = booleanPreferencesKey("onboardingCompleted")
+        val demoMode = booleanPreferencesKey("demoMode")
+        val lastTestScheduledMillis = longPreferencesKey("lastTestScheduledMillis")
     }
 
     val reminderOffsetMinutes: Flow<Int> = context.settingsDataStore.data.map { it[Keys.reminderOffsetMinutes]?.takeIf { value -> value in 1..60 } ?: 10 }
@@ -48,6 +51,9 @@ class SettingsRepository(private val context: Context) {
     val apiKeyFormat: Flow<String> = context.settingsDataStore.data.map { it[Keys.apiKeyFormat].orEmpty().takeIf { value -> value in API_KEY_FORMATS } ?: "UNKNOWN" }
     val apiKeyModel: Flow<String> = context.settingsDataStore.data.map { it[Keys.apiKeyModel].orEmpty() }
     val apiKeyLastVerifiedMillis: Flow<Long?> = context.settingsDataStore.data.map { it[Keys.apiKeyLastVerifiedMillis] }
+    val onboardingCompleted: Flow<Boolean> = context.settingsDataStore.data.map { it[Keys.onboardingCompleted] ?: false }
+    val demoMode: Flow<Boolean> = context.settingsDataStore.data.map { it[Keys.demoMode] ?: false }
+    val lastTestScheduledMillis: Flow<Long?> = context.settingsDataStore.data.map { it[Keys.lastTestScheduledMillis] }
 
     suspend fun setReminderOffsetMinutes(value: Int) { requireInRange(value, 1, 60, "reminderOffsetMinutes"); edit { it[Keys.reminderOffsetMinutes] = value } }
     suspend fun setFajrGapMinutes(value: Int) { requireInRange(value, 0, 60, "fajrGapMinutes"); edit { it[Keys.fajrGapMinutes] = value } }
@@ -79,6 +85,9 @@ class SettingsRepository(private val context: Context) {
     suspend fun setAlarmSoundUri(value: String?) { edit { if (value == null) it.remove(Keys.alarmSoundUri) else it[Keys.alarmSoundUri] = value } }
     suspend fun bumpRingChannelVersion(): Int { var next = 1; context.settingsDataStore.edit { next = (it[Keys.ringChannelVersion]?.takeIf { value -> value > 0 } ?: 1) + 1; it[Keys.ringChannelVersion] = next }; return next }
     suspend fun setRingFullScreenBlocked(value: Boolean) { edit { it[Keys.ringFullScreenBlocked] = value } }
+    suspend fun setOnboardingCompleted(value: Boolean) { edit { it[Keys.onboardingCompleted] = value } }
+    suspend fun setDemoMode(value: Boolean) { edit { it[Keys.demoMode] = value } }
+    suspend fun setLastTestScheduledMillis(value: Long?) { edit { if (value == null) it.remove(Keys.lastTestScheduledMillis) else it[Keys.lastTestScheduledMillis] = value } }
 
     suspend fun clearApiKey() { edit { preferences -> preferences.remove(Keys.geminiApiKey); preferences[Keys.apiKeyStatus] = "NOT_SET"; preferences.remove(Keys.apiKeyReason); preferences[Keys.apiKeyFormat] = "UNKNOWN"; preferences.remove(Keys.apiKeyModel); preferences.remove(Keys.apiKeyLastVerifiedMillis) } }
     suspend fun clearUserDataExceptKey() { edit { preferences -> preferences.remove(Keys.disclaimerAccepted); preferences.remove(Keys.lastTestFiredMillis); preferences.remove(Keys.alarmSoundUri); preferences.remove(Keys.ringChannelVersion); preferences.remove(Keys.ringFullScreenBlocked) } }

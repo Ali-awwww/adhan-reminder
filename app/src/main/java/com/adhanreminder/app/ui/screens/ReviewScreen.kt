@@ -57,6 +57,7 @@ fun ReviewScreen(scheduleId: Long, onBack: () -> Unit, onApproved: () -> Unit) {
     val scope = rememberCoroutineScope()
     var onlyFlagged by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<EditTarget?>(null) }
+    var confirmApproval by remember { mutableStateOf(false) }
     val flaggedCount = days.sumOf { flagsOf(it).size }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("المراجعة", style = MaterialTheme.typography.titleLarge)
@@ -67,14 +68,23 @@ fun ReviewScreen(scheduleId: Long, onBack: () -> Unit, onApproved: () -> Unit) {
             DayCard(day, settingsGap, settingsOffset, editable = true) { field -> selected = EditTarget(day, field) }
         }
         if (days.isEmpty()) Text("لا توجد أيام للعرض.")
-        Button(enabled = flaggedCount == 0 && days.isNotEmpty(), onClick = {
+        Button(enabled = flaggedCount == 0 && days.isNotEmpty(), onClick = { confirmApproval = true
+        }, modifier = Modifier.fillMaxWidth()) { Text("اعتماد وجدولة الشهر") }
+        OutlinedButton(onClick = onBack) { Text("رجوع") }
+    }
+    if (confirmApproval) AlertDialog(
+        onDismissRequest = { confirmApproval = false },
+        title = { Text("اعتماد الجدول؟") },
+        text = { Text("سيصبح هذا الجدول هو المصدر الوحيد للتنبيهات، وستُعاد جدولة منبهات الشهر. يمكنك تعديل الأيام لاحقاً من تبويب الجدول.") },
+        confirmButton = { Button(onClick = {
+            confirmApproval = false
             scope.launch {
                 SchedulingEngine(context, app.repository, app.settings).approveSchedule(scheduleId)
                 onApproved()
             }
-        }, modifier = Modifier.fillMaxWidth()) { Text("اعتماد وجدولة الشهر") }
-        OutlinedButton(onClick = onBack) { Text("رجوع") }
-    }
+        }) { Text("اعتماد وجدولة") } },
+        dismissButton = { TextButton(onClick = { confirmApproval = false }) { Text("إلغاء") } },
+    )
     selected?.let { target ->
         TimeEditDialog(target, settingsGap, onDismiss = { selected = null }) { updated ->
             scope.launch { app.repository.updatePrayerDay(updated); selected = null }
