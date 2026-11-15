@@ -21,7 +21,7 @@
 7. Android downgrades are not supported; uninstalling deletes local data.
 
 certificateSha256=a2b4c858bcfdebff841104f5ea0669d782a47dee57bff08e8a852176ee5cf9e9
-apkSha256=e602fe05c1275b15334014a3c5958c292d52d0e868c2310a12a846fd8feee5a2
+apkSha256=bfdc32026aea179b64019878b262bbfaffd6242d6471a52d8f6aa8f9f6bb9d30
 
 ## Release verification
 - Release enables R8 and resource shrinking with Android's optimized defaults to reduce shipped code and resource surface.
