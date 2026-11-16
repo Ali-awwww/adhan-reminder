@@ -22,6 +22,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -66,11 +67,11 @@ fun HomeScreen(onCapture: () -> Unit, onOpenDraft: (Long) -> Unit, onDeviceCheck
                     }
                 }
             }
-            draft != null -> Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(if (demoMode) "جدول تجريبي بانتظار المراجعة" else "الجدول بانتظار المراجعة"); Button(onClick = { onOpenDraft(draft.id) }) { Text("فتح المراجعة") } } }
-            demoMode -> Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("الوضع التجريبي مفعّل"); Text("يمكنك إنشاء جدول محلي لتجربة الواجهات دون مفتاح Gemini.", color = MaterialTheme.colorScheme.onSurfaceVariant); Button(onClick = { scope.launch { createDemoSchedule(app) } }) { Text("إنشاء جدول تجريبي") } } }
-            else -> Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("لم يُصوَّر جدول بعد"); Text("صوّر الجدول الشهري مرة واحدة، ثم راجعه قبل الاعتماد.", color = MaterialTheme.colorScheme.onSurfaceVariant); Button(onClick = onCapture) { Text("تصوير الجدول") } } }
+            draft != null -> Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(if (demoMode) "جدول تجريبي بانتظار المراجعة" else "الجدول بانتظار المراجعة"); Button(onClick = { onOpenDraft(draft.id) }, modifier = Modifier.testTag("home_open_draft_button")) { Text("فتح المراجعة") } } }
+            demoMode -> Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("الوضع التجريبي مفعّل"); Text("يمكنك إنشاء جدول محلي لتجربة الواجهات دون اتصال بالشبكة.", color = MaterialTheme.colorScheme.onSurfaceVariant); Button(onClick = { scope.launch { createDemoSchedule(app) } }, modifier = Modifier.testTag("home_create_demo_button")) { Text("إنشاء جدول تجريبي") } } }
+            else -> Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("لم يُصوَّر جدول بعد"); Text("صوّر الجدول الشهري مرة واحدة، ثم راجعه قبل الاعتماد.", color = MaterialTheme.colorScheme.onSurfaceVariant); Button(onClick = onCapture, modifier = Modifier.testTag("home_empty_capture_button")) { Text("تصوير الجدول") } } }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = onCapture, modifier = Modifier.weight(1f)) { Text("تصوير جدول") }; OutlinedButton(onClick = onDeviceCheck, modifier = Modifier.weight(1f)) { Text("فحص الجهاز") } }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = onCapture, modifier = Modifier.weight(1f).testTag("home_capture_button")) { Text("تصوير جدول") }; OutlinedButton(onClick = onDeviceCheck, modifier = Modifier.weight(1f).testTag("home_device_check_button")) { Text("فحص الجهاز") } }
     }
 }
 

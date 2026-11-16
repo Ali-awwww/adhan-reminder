@@ -1,0 +1,6 @@
+{
+  "name": "مذكّر الأذان",
+  "description": "تطبيق أندرويد للتذكير بأوقات الصلاة عبر قراءة جدول المواقيت الشهري بالصورة وضبط منبهات دقيقة محلياً.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

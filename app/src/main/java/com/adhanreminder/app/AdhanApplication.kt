@@ -10,7 +10,7 @@ import com.adhanreminder.app.update.UpdateScheduler
 class AdhanApplication : Application() {
     val settings by lazy { SettingsRepository(this) }
     val repository: AdhanRepository by lazy { RepositoryFactory.create(this) }
-    val gemini by lazy { GeminiClient(settings) }
+    val gemini by lazy { GeminiClient() }
 
     override fun onCreate() {
         super.onCreate()

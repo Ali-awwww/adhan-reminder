@@ -2,20 +2,14 @@ package com.adhanreminder.app.domain
 
 object ExtractionPrompt {
     val SYSTEM_INSTRUCTION = """
-You read one page of a monthly Islamic prayer timetable printed in Arabic. Return ONLY valid JSON that matches the schema. No markdown and no commentary.
-- Each row is one Gregorian day. Read the Gregorian date from the column titled الميلادي, in yyyy-MM-dd form. Read the Hijri day number from the column titled هـ.
-- Read the prayer columns by their Arabic headers, not by position: الفجر، الظهر، العصر، المغرب، العشاء. Ignore الشروق completely.
-- Copy each time exactly as printed in HH:mm. Copy its period marker: ص becomes AM and م becomes PM. Do not convert to 24-hour format yourself.
-- If the footer states that the first Fajr adhan comes a fixed number of minutes before the printed Fajr time, put that number in fajrNoteMinutes. Otherwise use null. Do not compute any reminder time.
-- If a value is unreadable, blurred, cut off, or inconsistent, set it to null and add an entry to flags with the day, the field, and a short Arabic reason.
+You read one page of an Islamic prayer timetable printed in Arabic (monthly, half-month, weekly, or any grid/table layout). Return ONLY valid JSON that matches the schema. No markdown and no commentary.
+- Each row or entry represents one day. Read the Gregorian date if present (prefer yyyy-MM-dd, e.g. 2025-06-26; if printed as yyyy/M/d convert to yyyy-MM-dd). Read the Hijri day number from هـ if present, otherwise null.
+- Read the prayer columns or labels by their Arabic names, not by fixed position: الفجر، الظهر، العصر، المغرب، العشاء. Ignore الشروق completely.
+- Normalize Arabic-Indic digits (٠١٢٣٤٥٦٧٨٩) to Western digits (0-9).
+- Copy each time as HH:mm (or H:mm). If the table uses 12-hour format with ص or م, set period to AM for ص and PM for م. If the table already uses 24-hour format (or has no AM/PM marker for afternoon/evening hours >= 13), keep the 24-hour time and set period to null.
+- If a footer note states that the first Fajr adhan comes a fixed number of minutes before the printed Fajr time (e.g. بعشرين دقيقة = 20), put that integer in fajrNoteMinutes. Otherwise use null. Do not compute any reminder time.
+- If a value is unreadable, blurred, cut off, or missing, set it to null and add an entry to flags with the day's gregorianDate, the field (fajr, dhuhr, asr, maghrib, isha), and a short Arabic reason.
 - Never guess. An accurate null with a flag is better than a plausible number.
-- If the image is not a prayer timetable, return {"error":"not_a_prayer_timetable"}.
+- If the image is clearly not a prayer timetable, return {"error":"not_a_prayer_timetable"}.
 """.trimIndent()
-
-    val RESPONSE_SCHEMA = """
-{"type":"object","properties":{"hijriMonthName":{"type":["string","null"]},"hijriYear":{"type":["integer","null"]},"fajrNoteMinutes":{"type":["integer","null"]},"days":{"type":"array","items":{"type":"object","properties":{"gregorianDate":{"type":"string"},"hijriDay":{"type":["integer","null"]},"fajr":{"type":"object"},"dhuhr":{"type":"object"},"asr":{"type":"object"},"maghrib":{"type":"object"},"isha":{"type":"object"}}}},"flags":{"type":"array"}}}
-""".trimIndent()
-
-    // Sample first row: 2025-06-26, hijriDay 1, fajr 03:26 AM, dhuhr 12:35 PM,
-    // asr 04:25 PM, maghrib 07:55 PM, isha 09:36 PM, fajrNoteMinutes 20.
 }

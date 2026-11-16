@@ -1,9 +1,6 @@
 package com.adhanreminder.app.ui.screens
 
 import android.app.Activity
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
@@ -18,49 +15,37 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.adhanreminder.app.AdhanApplication
-import com.adhanreminder.app.data.ApiKeyVerifier
+import com.adhanreminder.app.BuildConfig
 import com.adhanreminder.app.data.ScheduleBackupManager
 import com.adhanreminder.app.data.local.MonthSchedule
 import com.adhanreminder.app.data.local.PrayerDay
 import com.adhanreminder.app.data.local.ScheduleStatus
-import com.adhanreminder.app.domain.FailureReason
-import com.adhanreminder.app.domain.KeyCheckResult
-import com.adhanreminder.app.domain.KeyFormat
-import com.adhanreminder.app.domain.maskKey
-import com.adhanreminder.app.ui.components.KeyCard
-import com.adhanreminder.app.ui.components.LowPriorityButton
-import com.adhanreminder.app.ui.components.PrimaryButton
-import com.adhanreminder.app.ui.components.ReasonCode
-import com.adhanreminder.app.ui.components.SecondaryButton
-import com.adhanreminder.app.ui.components.StatusRow
-import com.adhanreminder.app.ui.theme.PlexMono
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @Composable
 fun SettingsScreen(onOpenDeviceCheck: () -> Unit, onClearData: () -> Unit) {
@@ -73,27 +58,23 @@ fun SettingsScreen(onOpenDeviceCheck: () -> Unit, onClearData: () -> Unit) {
     val rescan by settings.rescanReminderDays.collectAsState(initial = 3)
     val vibrate by settings.alarmVibrate.collectAsState(initial = true)
     val dark by settings.darkTheme.collectAsState(initial = true)
-    val storedKey by settings.geminiApiKey.collectAsState(initial = "")
-    val keyStatus by settings.apiKeyStatus.collectAsState(initial = "NOT_SET")
-    val keyReason by settings.apiKeyReason.collectAsState(initial = "")
-    val keyFormat by settings.apiKeyFormat.collectAsState(initial = "UNKNOWN")
-    val keyModel by settings.apiKeyModel.collectAsState(initial = "")
-    val verifiedAt by settings.apiKeyLastVerifiedMillis.collectAsState(initial = null)
     val sound by settings.alarmSoundUri.collectAsState(initial = null)
-    var key by remember(storedKey) { mutableStateOf(storedKey) }
-    var editing by remember { mutableStateOf(storedKey.isBlank()) }
-    var checking by remember { mutableStateOf(false) }
-    var transientFailure by remember { mutableStateOf<KeyCheckResult.Failed?>(null) }
-    var confirmDelete by remember { mutableStateOf(false) }
-    var tabIndex by remember { mutableStateOf(0) }
+    var tabIndex by remember { mutableIntStateOf(0) }
     var backupMessage by remember { mutableStateOf<String?>(null) }
     val demoMode by settings.demoMode.collectAsState(initial = false)
+
     val soundPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            val uri = if (Build.VERSION.SDK_INT >= 33) result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java) else @Suppress("DEPRECATION") result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            val uri = if (Build.VERSION.SDK_INT >= 33) {
+                result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                result.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            }
             scope.launch { settings.setAlarmSoundUri(uri?.toString()) }
         }
     }
+
     val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) scope.launch {
             runCatching {
@@ -101,82 +82,172 @@ fun SettingsScreen(onOpenDeviceCheck: () -> Unit, onClearData: () -> Unit) {
                 val days = app.repository.getPrayerDays(schedule.id)
                 val output = context.contentResolver.openOutputStream(uri) ?: error("تعذر فتح الملف")
                 ScheduleBackupManager(context).export(schedule, days, output)
-            }.onSuccess { backupMessage = "تم تصدير نسخة مشفّرة من الجدول" }.onFailure { backupMessage = it.message ?: "تعذر التصدير" }
+            }.onSuccess { backupMessage = "تم تصدير نسخة مشفّرة من الجدول" }
+                .onFailure { backupMessage = it.message ?: "تعذر التصدير" }
         }
     }
+
     val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
             runCatching {
                 val input = context.contentResolver.openInputStream(uri) ?: error("تعذر فتح الملف")
                 val imported = ScheduleBackupManager(context).import(input)
-                val id = app.repository.insertSchedule(MonthSchedule(hijriMonthLabel = imported.hijriMonthLabel, createdAtMillis = imported.createdAtMillis, status = ScheduleStatus.DRAFT))
-                app.repository.insertPrayerDays(imported.days.map { day -> PrayerDay(scheduleId = id, gregorianDate = day.gregorianDate, hijriDay = day.hijriDay, fajr = day.fajr, dhuhr = day.dhuhr, asr = day.asr, maghrib = day.maghrib, isha = day.isha, reviewFlagsJson = day.reviewFlagsJson) })
-            }.onSuccess { backupMessage = "تم استيراد النسخة كمسودة للمراجعة" }.onFailure { backupMessage = it.message ?: "تعذر الاستيراد" }
+                val id = app.repository.insertSchedule(
+                    MonthSchedule(
+                        hijriMonthLabel = imported.hijriMonthLabel,
+                        createdAtMillis = imported.createdAtMillis,
+                        status = ScheduleStatus.DRAFT,
+                    )
+                )
+                app.repository.insertPrayerDays(
+                    imported.days.map { day ->
+                        PrayerDay(
+                            scheduleId = id,
+                            gregorianDate = day.gregorianDate,
+                            hijriDay = day.hijriDay,
+                            fajr = day.fajr,
+                            dhuhr = day.dhuhr,
+                            asr = day.asr,
+                            maghrib = day.maghrib,
+                            isha = day.isha,
+                            reviewFlagsJson = day.reviewFlagsJson,
+                        )
+                    }
+                )
+            }.onSuccess { backupMessage = "تم استيراد النسخة كمسودة للمراجعة" }
+                .onFailure { backupMessage = it.message ?: "تعذر الاستيراد" }
         }
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
         Text("الإعدادات", style = MaterialTheme.typography.titleLarge)
-        TabRow(selectedTabIndex = tabIndex) { listOf("المفتاح", "التنبيهات", "المظهر", "الجهاز والبيانات").forEachIndexed { index, label -> Tab(selected = tabIndex == index, onClick = { tabIndex = index }, text = { Text(label) }) } }
+        TabRow(selectedTabIndex = tabIndex) {
+            listOf("التنبيهات", "المظهر", "الجهاز والبيانات").forEachIndexed { index, label ->
+                Tab(
+                    selected = tabIndex == index,
+                    onClick = { tabIndex = index },
+                    text = { Text(label) },
+                    modifier = Modifier.testTag("settings_tab_$index"),
+                )
+            }
+        }
         when (tabIndex) {
             0 -> {
-                Text("مفتاح API", style = MaterialTheme.typography.titleMedium)
-                KeyStatusPanel(keyStatus, keyReason, keyFormat, keyModel, verifiedAt, storedKey, transientFailure, onRetry = { editing = true }, onCopyReport = { report ->
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("تقرير تشخيصي", report))
-                })
-                if (!editing && storedKey.isNotBlank()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { SecondaryButton("تغيير المفتاح", { editing = true }, modifier = Modifier.weight(1f)); TextButton(onClick = { confirmDelete = true }, modifier = Modifier.weight(1f)) { Text("حذف المفتاح") } }
-                else {
-                    OutlinedTextField(value = key, onValueChange = { if (it.length <= 256) key = it }, modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 3, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text), label = { Text("الصق مفتاح Gemini") })
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { PrimaryButton(if (checking) "جارٍ التحقق" else "تحقق واحفظ", { scope.launch { checking = true; transientFailure = null; val result = ApiKeyVerifier().verifyOnce(key); checking = false; when (result) { is KeyCheckResult.Ok -> { settings.saveVerifiedApiKey(key, "OK_READY", "", result.format.code, result.model, result.verifiedAtMillis); editing = false }; is KeyCheckResult.Warning -> { settings.saveVerifiedApiKey(key, "QUOTA_LIMITED", result.reason.code, result.format.code, result.model, result.verifiedAtMillis); editing = false }; is KeyCheckResult.Failed -> transientFailure = result } } }, !checking, Modifier.weight(1f)); TextButton(onClick = { key = storedKey; transientFailure = null; editing = false }, enabled = !checking, modifier = Modifier.weight(.5f)) { Text("إلغاء") } }
+                SettingStepper("التنبيه قبل الأذان", reminder, 1..60) {
+                    scope.launch { settings.setReminderOffsetMinutes(it) }
+                }
+                SettingStepper("الفاصل قبل الفجر المكتوب", gap, 0..60) {
+                    scope.launch { settings.setFajrGapMinutes(it) }
+                }
+                Text(
+                    "الفجر: التنبيه قبل الأذان الأول بـ${gap + reminder} دقيقة",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                HorizontalDivider()
+                SettingStepper("التذكير بتصوير جدول جديد قبل النهاية", rescan, 1..7) {
+                    scope.launch { settings.setRescanReminderDays(it) }
+                }
+                SettingSwitch("اهتزاز المنبه", vibrate, "settings_vibrate_switch") {
+                    scope.launch { settings.setAlarmVibrate(it) }
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("صوت المنبه")
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                soundPicker.launch(
+                                    Intent(RingtoneManager.ACTION_RINGTONE_PICKER)
+                                        .putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                                        .putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, sound?.let(Uri::parse))
+                                )
+                            },
+                            modifier = Modifier.testTag("settings_pick_sound_button"),
+                        ) { Text("اختيار") }
+                        TextButton(
+                            onClick = { sound?.let { RingtoneManager.getRingtone(context, Uri.parse(it))?.play() } },
+                            modifier = Modifier.testTag("settings_test_sound_button"),
+                        ) { Text("اختبار") }
+                    }
                 }
             }
             1 -> {
-                SettingStepper("التنبيه قبل الأذان", reminder, 1..60) { scope.launch { settings.setReminderOffsetMinutes(it) } }
-                SettingStepper("الفاصل قبل الفجر المكتوب", gap, 0..60) { scope.launch { settings.setFajrGapMinutes(it) } }
-                Text("الفجر: التنبيه قبل الأذان الأول بـ${gap + reminder} دقيقة", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SettingSwitch("الوضع الداكن", dark, "settings_dark_theme_switch") {
+                    scope.launch { settings.setDarkTheme(it) }
+                }
                 HorizontalDivider()
-                SettingStepper("التذكير بتصوير جدول جديد قبل النهاية", rescan, 1..7) { scope.launch { settings.setRescanReminderDays(it) } }
-                SettingSwitch("اهتزاز المنبه", vibrate) { scope.launch { settings.setAlarmVibrate(it) } }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("صوت المنبه"); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { OutlinedButton(onClick = { soundPicker.launch(Intent(RingtoneManager.ACTION_RINGTONE_PICKER).putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM).putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, sound?.let(Uri::parse))) }) { Text("اختيار") }; TextButton(onClick = { sound?.let { RingtoneManager.getRingtone(context, Uri.parse(it))?.play() } }) { Text("اختبار") } } }
-            }
-            2 -> {
-                SettingSwitch("الوضع الداكن", dark) { scope.launch { settings.setDarkTheme(it) } }
-                HorizontalDivider()
-                SettingSwitch("الوضع التجريبي بدون شبكة", demoMode) { scope.launch { settings.setDemoMode(it) } }
-                Text("ينشئ جدولاً محلياً تجريبياً لتجربة المراجعة والتنقل دون إرسال صورة أو استخدام مفتاح Gemini.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SettingSwitch("الوضع التجريبي بدون شبكة", demoMode, "settings_demo_mode_switch") {
+                    scope.launch { settings.setDemoMode(it) }
+                }
+                Text(
+                    "ينشئ جدولاً محلياً تجريبياً لتجربة المراجعة والتنقل دون إرسال صورة أو الاتصال بالخدمة.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             else -> {
-                Button(onClick = onOpenDeviceCheck, modifier = Modifier.fillMaxWidth()) { Text("فحص الجهاز") }
-                OutlinedButton(onClick = { exportPicker.launch("adhan-reminder-backup.bin") }, modifier = Modifier.fillMaxWidth()) { Text("تصدير نسخة احتياطية مشفّرة") }
-                OutlinedButton(onClick = { importPicker.launch(arrayOf("application/octet-stream", "application/json")) }, modifier = Modifier.fillMaxWidth()) { Text("استيراد نسخة احتياطية") }
+                Button(
+                    onClick = onOpenDeviceCheck,
+                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize().testTag("settings_device_check_button"),
+                ) { Text("فحص الجهاز") }
+                OutlinedButton(
+                    onClick = { exportPicker.launch("adhan-reminder-backup.bin") },
+                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize().testTag("settings_export_button"),
+                ) { Text("تصدير نسخة احتياطية مشفّرة") }
+                OutlinedButton(
+                    onClick = { importPicker.launch(arrayOf("application/octet-stream", "application/json")) },
+                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize().testTag("settings_import_button"),
+                ) { Text("استيراد نسخة احتياطية") }
                 backupMessage?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                OutlinedButton(onClick = onClearData, modifier = Modifier.fillMaxWidth()) { Text("مسح البيانات") }
+                OutlinedButton(
+                    onClick = onClearData,
+                    modifier = Modifier.fillMaxWidth().minimumInteractiveComponentSize().testTag("settings_clear_data_button"),
+                ) { Text("مسح البيانات") }
             }
         }
-        Text("الإصدار ${com.adhanreminder.app.BuildConfig.VERSION_NAME} (${com.adhanreminder.app.BuildConfig.VERSION_CODE})", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "الإصدار ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
-    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("حذف المفتاح؟") }, text = { Text("سيُحذف المفتاح وحالة التحقق من الجهاز.") }, confirmButton = { Button(onClick = { confirmDelete = false; scope.launch { settings.clearApiKey(); key = ""; editing = true } }) { Text("نعم، احذف") } }, dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("إلغاء") } })
 }
 
 @Composable
-private fun KeyStatusPanel(status: String, reason: String, format: String, model: String, verifiedAt: Long?, storedKey: String, failure: KeyCheckResult.Failed?, onRetry: () -> Unit, onCopyReport: (String) -> Unit) {
-    val failed = failure ?: if (status == "FAILED") KeyCheckResult.Failed(reason.toFailureReason()) else null
-    KeyCard {
-        when {
-            status == "NOT_SET" && failed == null -> StatusRow("—", "لم يُضَف مفتاح بعد")
-            status == "OK_READY" -> { StatusRow("✓", "المفتاح يعمل", "تم التحقق من المفتاح والنموذج والخدمة."); KeyDetails(format, model, verifiedAt, storedKey) }
-            status == "QUOTA_LIMITED" -> { StatusRow("⚠", "المفتاح صالح، لكن الحد الحالي مستنفد"); KeyDetails(format, model, verifiedAt, storedKey) }
-            else -> { val actual = failed?.reason ?: FailureReason.UNKNOWN; StatusRow("✗", failureTitle(actual)); ReasonCode(actual.code.uppercase(Locale.ROOT)); Text(failureDetail(actual), color = MaterialTheme.colorScheme.onSurfaceVariant); LowPriorityButton("إعادة الاختبار", onRetry); LowPriorityButton("نسخ التقرير التشخيصي", onClick = { onCopyReport(diagnosticReport(status, reason, format, model, verifiedAt, storedKey, actual)) }) }
+private fun SettingStepper(title: String, value: Int, range: IntRange, onValue: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(title)
+            Text(value.toString())
         }
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onValue(it.toInt().coerceIn(range)) },
+            valueRange = range.first.toFloat()..range.last.toFloat(),
+            steps = (range.last - range.first - 1).coerceAtLeast(0),
+        )
     }
 }
 
-@Composable private fun KeyDetails(format: String, model: String, verifiedAt: Long?, key: String) { Text("النوع: ${formatLabel(format)}"); Text("النموذج: $model", fontFamily = PlexMono); Text("آخر تحقق: ${verifiedAt?.let { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date(it)) } ?: "—"}"); Text(maskKey(key), fontFamily = PlexMono) }
-private fun formatLabel(value: String) = when (value) { KeyFormat.LEGACY_AIZA.code -> "صيغة قديمة (AIza)"; KeyFormat.NEW_AQ.code -> "صيغة حديثة (AQ.)"; else -> "صيغة غير معروفة، والاختبار هو المعيار" }
-private fun String.toFailureReason() = FailureReason.entries.firstOrNull { it.code == lowercase(Locale.ROOT) } ?: FailureReason.UNKNOWN
-private fun diagnosticReport(status: String, reason: String, format: String, model: String, verifiedAt: Long?, key: String, failure: FailureReason) = "Adhan Reminder\nstatus=$status\nreason=${failure.code.uppercase(Locale.ROOT)}\nformat=$format\nmodel=$model\nverifiedAt=${verifiedAt ?: "—"}\nkey=${maskKey(key)}"
-private fun failureTitle(reason: FailureReason) = mapOf(FailureReason.EMPTY to "لم تُدخل مفتاحاً", FailureReason.INTERNAL_WHITESPACE to "المفتاح يحتوي مسافات أو أسطراً", FailureReason.KEY_INVALID to "المفتاح غير صحيح", FailureReason.MODEL_NOT_FOUND to "النموذج غير متاح", FailureReason.NO_NETWORK to "لا يوجد اتصال بالإنترنت", FailureReason.TIMEOUT to "انتهت مهلة الاتصال")[reason] ?: "خطأ غير مصنّف"
-private fun failureDetail(reason: FailureReason) = when (reason) { FailureReason.EMPTY -> "الحقل فارغ."; FailureReason.INTERNAL_WHITESPACE -> "غالباً أُضيف نص زائد أثناء النسخ."; FailureReason.NO_NETWORK -> "تعذّر الوصول إلى خدمة Google."; FailureReason.TIMEOUT -> "الخدمة لم ترد في الوقت المحدد."; else -> "تعذر التحقق من المفتاح أو النموذج." }
-
-@Composable private fun SettingStepper(title: String, value: Int, range: IntRange, onValue: (Int) -> Unit) { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(title); Text(value.toString()) }; androidx.compose.material3.Slider(value = value.toFloat(), onValueChange = { onValue(it.toInt().coerceIn(range)) }, valueRange = range.first.toFloat()..range.last.toFloat(), steps = (range.last - range.first - 1).coerceAtLeast(0)) } }
-@Composable private fun SettingSwitch(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(title); androidx.compose.material3.Switch(checked, onCheckedChange = onChecked) } }
+@Composable
+private fun SettingSwitch(title: String, checked: Boolean, testTag: String, onChecked: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().minimumInteractiveComponentSize(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title)
+        Switch(
+            checked = checked,
+            onCheckedChange = onChecked,
+            modifier = Modifier.testTag(testTag),
+        )
+    }
+}
