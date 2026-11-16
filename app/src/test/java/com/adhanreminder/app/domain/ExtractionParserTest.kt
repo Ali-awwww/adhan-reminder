@@ -37,4 +37,16 @@ class ExtractionParserTest {
         assertEquals("2025-06-26", ExtractionParser.normalizeDate("26/06/2025"))
         assertEquals("2025-06-26", ExtractionParser.normalizeDate("2025-06-26"))
     }
+
+    @Test fun parsesMarkdownFencedAndWrappedJson() {
+        val wrapped = """
+            Here is the extracted timetable:
+            ```json
+            {"hijriMonthName":"محرم","hijriYear":1447,"days":[{"gregorianDate":"2025-06-26","hijriDay":1,"fajr":{"time":"03:26","period":"AM"},"dhuhr":{"time":"12:35","period":"PM"},"asr":{"time":"16:25","period":null},"maghrib":{"time":"19:55","period":null},"isha":{"time":"21:36","period":null}}],"flags":[]}
+            ```
+        """.trimIndent()
+        val parsed = ExtractionParser.parse(wrapped).getOrThrow()
+        assertEquals(1, parsed.days.size)
+        assertEquals("2025-06-26", parsed.days.first().gregorianDate)
+    }
 }

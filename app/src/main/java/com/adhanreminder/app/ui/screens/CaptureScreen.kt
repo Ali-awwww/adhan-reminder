@@ -54,23 +54,18 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.adhanreminder.app.R
-import com.adhanreminder.app.data.AppCheckStatus
-import com.adhanreminder.app.data.GeminiClient
-import com.adhanreminder.app.data.ModelConfig
 import com.adhanreminder.app.domain.AnalysisStage
-import com.adhanreminder.app.domain.CaptureDiagnostics
 import com.adhanreminder.app.domain.ScanQuotaPolicy
-import com.adhanreminder.app.ui.theme.PlexMono
+import com.adhanreminder.app.ui.components.CaptureDiagnosticsCard
+import com.adhanreminder.app.ui.components.ServerProbeCard
 import kotlinx.coroutines.delay
 import java.io.File
-import java.util.Locale
 
 @Composable
 fun CaptureScreen(
@@ -83,7 +78,7 @@ fun CaptureScreen(
     val stage = uiState.stage
     val quotaStatus = uiState.quotaStatus
     val diagnostics = uiState.diagnostics
-    val timeoutSeconds = (GeminiClient.REQUEST_TIMEOUT_MS / 1_000L).toInt()
+    val timeoutSeconds = diagnostics.attemptTimeoutSeconds
     val elapsedSeconds = diagnostics.aiStartedAtMillis?.let { started ->
         ((uiState.nowMillis - started).coerceAtLeast(0L) / 1_000L).toInt().coerceAtMost(timeoutSeconds)
     } ?: 0
@@ -146,6 +141,29 @@ fun CaptureScreen(
             }
         }
 
+        OutlinedButton(
+            onClick = { vm.runServerProbe() },
+            enabled = !uiState.isBusy && !uiState.isProbing,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("capture_probe_server_button"),
+        ) {
+            Text(
+                if (uiState.isProbing) "جارٍ فحص اتصال الخادم…" else "فحص اتصال الخادم (دون خصم رصيد)",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        AnimatedVisibility(
+            visible = uiState.probeState !is ServerProbeState.Idle,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(160)),
+        ) {
+            ServerProbeCard(
+                probeState = uiState.probeState,
+                onDismiss = { vm.dismissProbeResult() },
+            )
+        }
+
         val imageUri = uiState.selectedImageUri
         if (imageUri == null) {
             Button(
@@ -203,6 +221,8 @@ fun CaptureScreen(
             ) {
                 AnalysisProgressCard(
                     stage = stage,
+                    activeModelName = diagnostics.activeModelName,
+                    usedFallbackModel = diagnostics.usedFallbackModel,
                     elapsedSeconds = elapsedSeconds,
                     timeoutSeconds = timeoutSeconds,
                 )
@@ -213,7 +233,8 @@ fun CaptureScreen(
                 stage is AnalysisStage.Error ||
                 diagnostics.isCancelled ||
                 diagnostics.imageBytes != null ||
-                diagnostics.statusDetail != null
+                diagnostics.statusDetail != null ||
+                diagnostics.attempts.isNotEmpty()
 
             AnimatedVisibility(
                 visible = showDiagnostics,
@@ -268,7 +289,7 @@ fun CaptureScreen(
 
 @Composable
 private fun TimetablePreviewWithScanner(
-    imageUri: android.net.Uri,
+    imageUri: Uri,
     isScanning: Boolean,
     isSuccess: Boolean,
 ) {
@@ -302,7 +323,6 @@ private fun TimetablePreviewWithScanner(
             val strokePx = 2.5.dp.toPx()
             val bracketLen = 22.dp.toPx().coerceAtMost(size.minDimension * 0.18f)
 
-            // Corner viewfinder brackets
             drawLine(borderColor, Offset(0f, 0f), Offset(bracketLen, 0f), strokePx, StrokeCap.Round)
             drawLine(borderColor, Offset(0f, 0f), Offset(0f, bracketLen), strokePx, StrokeCap.Round)
             drawLine(borderColor, Offset(size.width, 0f), Offset(size.width - bracketLen, 0f), strokePx, StrokeCap.Round)
@@ -342,12 +362,14 @@ private fun TimetablePreviewWithScanner(
 @Composable
 private fun AnalysisProgressCard(
     stage: AnalysisStage,
+    activeModelName: String,
+    usedFallbackModel: Boolean,
     elapsedSeconds: Int,
     timeoutSeconds: Int,
 ) {
     val targetProgress = when (stage) {
         is AnalysisStage.PreparingImage -> 0.28f
-        is AnalysisStage.AnalyzingWithAi -> 0.68f
+        is AnalysisStage.AnalyzingWithAi -> if (usedFallbackModel) 0.78f else 0.60f
         is AnalysisStage.ValidatingSchedule -> 0.92f
         is AnalysisStage.Success -> 1f
         else -> 0f
@@ -368,7 +390,12 @@ private fun AnalysisProgressCard(
 
     val stageAnnouncement = when (stage) {
         is AnalysisStage.PreparingImage -> "تجهيز وضغط الصورة"
-        is AnalysisStage.AnalyzingWithAi -> "قراءة المواقيت بالذكاء الاصطناعي · ${elapsedSeconds}ث / ${timeoutSeconds}ث"
+        is AnalysisStage.AnalyzingWithAi ->
+            if (usedFallbackModel) {
+                "تحويل تلقائي ($activeModelName) · ${elapsedSeconds}ث / ${timeoutSeconds}ث"
+            } else {
+                "قراءة المواقيت ($activeModelName) · ${elapsedSeconds}ث / ${timeoutSeconds}ث"
+            }
         is AnalysisStage.ValidatingSchedule -> "التحقق من الأوقات وحفظ المسودة"
         is AnalysisStage.Success -> "تمت قراءة ${stage.dayCount} يوماً بنجاح"
         else -> ""
@@ -398,117 +425,14 @@ private fun AnalysisProgressCard(
             )
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 StepRow("تجهيز وضغط الصورة", stepIndex = 0, activeStep = activeStep)
-                StepRow("قراءة المواقيت بالذكاء الاصطناعي", stepIndex = 1, activeStep = activeStep)
+                StepRow(
+                    if (usedFallbackModel) "قراءة المواقيت بالبديل ($activeModelName)" else "قراءة المواقيت بالذكاء الاصطناعي",
+                    stepIndex = 1,
+                    activeStep = activeStep,
+                )
                 StepRow("التحقق من الأوقات وحفظ المسودة", stepIndex = 2, activeStep = activeStep)
             }
         }
-    }
-}
-
-@Composable
-private fun CaptureDiagnosticsCard(
-    stage: AnalysisStage,
-    diagnostics: CaptureDiagnostics,
-    elapsedSeconds: Int,
-    timeoutSeconds: Int,
-) {
-    val appCheckText = diagnostics.appCheckLabel.ifBlank { AppCheckStatus.current.labelAr }
-    val imageText = when {
-        diagnostics.imageBytes != null -> {
-            val kb = maxOf(1, (diagnostics.imageBytes + 512) / 1024)
-            "$kb KB · JPEG"
-        }
-        stage is AnalysisStage.PreparingImage -> "جارٍ ضغط الصورة…"
-        else -> "—"
-    }
-    val connectionText = when {
-        stage is AnalysisStage.AnalyzingWithAi -> "في انتظار رد ${ModelConfig.MODEL_NAME} · ${elapsedSeconds}ث / ${timeoutSeconds}ث"
-        diagnostics.isCancelled -> "أُلغي يدوياً بعد ${elapsedSeconds}ث"
-        diagnostics.latencyMillis != null -> "استغرق ${String.format(Locale.US, "%.1f", diagnostics.latencyMillis / 1000.0)}ث"
-        stage is AnalysisStage.PreparingImage -> "تجهيز محلي قبل الإرسال"
-        else -> "جاهز"
-    }
-    val responseText = when {
-        diagnostics.responseChars != null -> {
-            val latencyPart = diagnostics.latencyMillis?.let {
-                " خلال ${String.format(Locale.US, "%.1f", it / 1000.0)}ث"
-            }.orEmpty()
-            "استلم ${diagnostics.responseChars} حرفاً$latencyPart"
-        }
-        diagnostics.statusDetail != null -> diagnostics.statusDetail
-        else -> "—"
-    }
-    val responseIsError = stage is AnalysisStage.Error || diagnostics.isCancelled
-
-    Card(
-        modifier = Modifier.fillMaxWidth().testTag("capture_diagnostics_card"),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "تشخيص الإرسال المباشر",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    ModelConfig.MODEL_NAME,
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = PlexMono),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            DiagnosticRow(label = "App Check", value = appCheckText)
-            DiagnosticRow(label = "الصورة المرسلة", value = imageText, mono = true)
-            DiagnosticRow(label = "الاتصال والزمن", value = connectionText, mono = stage is AnalysisStage.AnalyzingWithAi)
-            DiagnosticRow(
-                label = "حالة الرد",
-                value = responseText,
-                isError = responseIsError,
-            )
-            diagnostics.appCheckDetail?.takeIf { it.isNotBlank() }?.let { note ->
-                Text(
-                    note,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DiagnosticRow(
-    label: String,
-    value: String,
-    mono: Boolean = false,
-    isError: Boolean = false,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(end = 12.dp),
-        )
-        Text(
-            value,
-            style = if (mono) {
-                MaterialTheme.typography.bodySmall.copy(fontFamily = PlexMono)
-            } else {
-                MaterialTheme.typography.bodySmall
-            },
-            color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
     }
 }
 

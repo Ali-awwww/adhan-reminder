@@ -9,9 +9,13 @@ import com.adhanreminder.app.BuildConfig
 import com.adhanreminder.app.data.AdhanRepository
 import com.adhanreminder.app.data.SettingsRepository
 import com.adhanreminder.app.data.local.PrayerDay
+import com.adhanreminder.app.data.local.ScheduleStatus
 import com.adhanreminder.app.data.local.ScheduledAlarm
 import com.adhanreminder.app.domain.AlarmCalculator
 import com.adhanreminder.app.domain.PrayerTimes24
+import com.adhanreminder.app.domain.ScheduleConflictReport
+import com.adhanreminder.app.domain.ScheduleConflictResolver
+import com.adhanreminder.app.domain.ScheduleDaySnapshot
 import com.adhanreminder.app.domain.ValidatedDay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
@@ -49,12 +53,60 @@ class SchedulingEngine(
         scheduleDays(schedule.id, listOf(day))
     }
 
+    suspend fun inspectApprovalConflicts(newScheduleId: Long): ScheduleConflictReport? {
+        val existing = repository.getLatestApprovedSchedule() ?: return null
+        if (existing.id == newScheduleId) return null
+        val existingDays = repository.getPrayerDays(existing.id).map { it.toSnapshot() }
+        val newDays = repository.getPrayerDays(newScheduleId).map { it.toSnapshot() }
+        val report = ScheduleConflictResolver.detectConflicts(
+            existingScheduleId = existing.id,
+            existingScheduleLabel = existing.hijriMonthLabel.ifBlank { "الجدول السابق" },
+            existingDays = existingDays,
+            newDays = newDays,
+        )
+        return report.takeIf { it.hasConflicts }
+    }
+
+    suspend fun approveWithMerge(newScheduleId: Long, existingScheduleId: Long): Int = globalMutex.withLock {
+        cancelStoredAlarms()
+        RescanReminder.cancel(context)
+
+        val existingDays = repository.getPrayerDays(existingScheduleId).map { it.toSnapshot() }
+        val newDays = repository.getPrayerDays(newScheduleId).map { it.toSnapshot() }
+        val mergedSnapshots = ScheduleConflictResolver.mergeDays(existingDays, newDays)
+
+        val mergedEntities = mergedSnapshots.map { snapshot ->
+            PrayerDay(
+                scheduleId = newScheduleId,
+                gregorianDate = snapshot.gregorianDate,
+                hijriDay = snapshot.hijriDay,
+                fajr = snapshot.fajr,
+                dhuhr = snapshot.dhuhr,
+                asr = snapshot.asr,
+                maghrib = snapshot.maghrib,
+                isha = snapshot.isha,
+                reviewFlagsJson = "[]",
+            )
+        }
+
+        repository.deletePrayerDays(newScheduleId)
+        repository.insertPrayerDays(mergedEntities)
+
+        repository.demoteAllApprovedSchedules()
+        val schedule = repository.getSchedule(newScheduleId) ?: return@withLock 0
+        repository.updateSchedule(schedule.copy(status = ScheduleStatus.APPROVED))
+        val finalDays = repository.getPrayerDays(newScheduleId)
+        val count = scheduleDays(newScheduleId, finalDays)
+        RescanReminder.schedule(context, repository, settings, newScheduleId, finalDays)
+        count
+    }
+
     suspend fun approveSchedule(scheduleId: Long): Int = globalMutex.withLock {
         cancelStoredAlarms()
         RescanReminder.cancel(context)
         repository.demoteAllApprovedSchedules()
         val schedule = repository.getSchedule(scheduleId) ?: return@withLock 0
-        repository.updateSchedule(schedule.copy(status = com.adhanreminder.app.data.local.ScheduleStatus.APPROVED))
+        repository.updateSchedule(schedule.copy(status = ScheduleStatus.APPROVED))
         val days = repository.getPrayerDays(scheduleId)
         val count = scheduleDays(scheduleId, days)
         RescanReminder.schedule(context, repository, settings, scheduleId, days)
@@ -84,8 +136,8 @@ class SchedulingEngine(
         days.forEach { day ->
             val calculation = AlarmCalculator.calculate(day.asValidated(), offset, gap, zone, now)
             calculation.plans.forEach { plan ->
-                val dayIndex = runCatching { LocalDate.parse(day.gregorianDate).dayOfMonth }.getOrDefault(1)
-                val requestCode = dayIndex * 10 + plan.prayerKey.ordinal
+                val epochDay = runCatching { LocalDate.parse(day.gregorianDate).toEpochDay().toInt().coerceAtLeast(1) }.getOrDefault(1)
+                val requestCode = epochDay * 10 + plan.prayerKey.ordinal
                 val row = ScheduledAlarm(
                     scheduleId = scheduleId,
                     prayerKey = plan.prayerKey,
@@ -138,6 +190,16 @@ class SchedulingEngine(
         hijriDay = hijriDay,
         times = PrayerTimes24(fajr, dhuhr, asr, maghrib, isha),
         flags = mutableListOf(),
+    )
+
+    private fun PrayerDay.toSnapshot() = ScheduleDaySnapshot(
+        gregorianDate = gregorianDate,
+        hijriDay = hijriDay,
+        fajr = fajr,
+        dhuhr = dhuhr,
+        asr = asr,
+        maghrib = maghrib,
+        isha = isha,
     )
 
     companion object {

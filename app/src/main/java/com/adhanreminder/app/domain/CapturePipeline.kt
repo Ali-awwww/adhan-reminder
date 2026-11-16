@@ -1,6 +1,11 @@
 package com.adhanreminder.app.domain
 
+import com.adhanreminder.app.data.AttemptDiagnostic
+import com.adhanreminder.app.data.AttemptMode
+import com.adhanreminder.app.data.AttemptProgress
+import com.adhanreminder.app.data.GeminiClient
 import com.adhanreminder.app.data.ImagePreparationResult
+import com.adhanreminder.app.data.ModelConfig
 import com.adhanreminder.app.data.TimetableResult
 import kotlinx.coroutines.CancellationException
 import java.time.LocalDate
@@ -26,11 +31,17 @@ data class PersistedDraftResult(
 data class CaptureDiagnostics(
     val appCheckLabel: String = "",
     val appCheckDetail: String? = null,
+    val activeModelName: String = ModelConfig.MODEL_NAME,
+    val activeMode: AttemptMode = AttemptMode.SCHEMA,
+    val attemptTimeoutSeconds: Int = (GeminiClient.REQUEST_TIMEOUT_MS / 1_000L).toInt(),
+    val usedFallbackModel: Boolean = false,
     val imageBytes: Int? = null,
     val aiStartedAtMillis: Long? = null,
     val latencyMillis: Long? = null,
     val responseChars: Int? = null,
+    val responsePreview: String? = null,
     val statusDetail: String? = null,
+    val attempts: List<AttemptDiagnostic> = emptyList(),
     val isCancelled: Boolean = false,
 )
 
@@ -38,7 +49,10 @@ class CapturePipeline(
     private val prepareImage: suspend () -> ImagePreparationResult,
     private val getQuotaRecord: suspend () -> ScanQuotaRecord,
     private val recordScanAttempt: suspend (Long, LocalDate) -> Unit,
-    private val extractTimetable: suspend (ByteArray) -> TimetableResult,
+    private val extractTimetable: suspend (
+        ByteArray,
+        (AttemptProgress) -> Unit,
+    ) -> TimetableResult,
     private val saveValidatedSchedule: suspend (ParsedTimetable, ValidatedTimetable) -> PersistedDraftResult,
     private val nowMillisProvider: () -> Long = { System.currentTimeMillis() },
     private val todayProvider: () -> LocalDate = { LocalDate.now() },
@@ -87,9 +101,9 @@ class CapturePipeline(
             )
             onDiagnostics(diag)
 
-            val attemptNow = nowMillisProvider()
-            val attemptToday = todayProvider()
-            val attemptStatus = ScanQuotaPolicy.evaluate(getQuotaRecord(), attemptNow, attemptToday)
+            val attemptCheckNow = nowMillisProvider()
+            val attemptCheckToday = todayProvider()
+            val attemptStatus = ScanQuotaPolicy.evaluate(getQuotaRecord(), attemptCheckNow, attemptCheckToday)
             if (!attemptStatus.canScan) {
                 val reason = attemptStatus.blockReasonAr ?: "تعذر الإرسال حالياً."
                 diag = diag.copy(statusDetail = reason)
@@ -101,25 +115,40 @@ class CapturePipeline(
                 onStage(blocked)
                 return blocked
             }
-            recordScanAttempt(attemptNow, attemptToday)
 
-            val aiStart = nowMillisProvider()
+            val overallAiStart = nowMillisProvider()
             diag = diag.copy(
-                aiStartedAtMillis = aiStart,
+                activeModelName = ModelConfig.MODEL_NAME,
+                activeMode = AttemptMode.SCHEMA,
+                usedFallbackModel = false,
+                aiStartedAtMillis = overallAiStart,
                 latencyMillis = null,
                 responseChars = null,
+                attempts = emptyList(),
                 isCancelled = false,
-                statusDetail = "تم إرسال $sizeKb KB · في انتظار رد النموذج…",
+                statusDetail = "تم إرسال $sizeKb KB إلى ${ModelConfig.MODEL_NAME} · في انتظار الرد…",
             )
             onDiagnostics(diag)
             onStage(AnalysisStage.AnalyzingWithAi)
 
-            val result = extractTimetable(prepared.jpeg)
-            val aiLatency = (nowMillisProvider() - aiStart).coerceAtLeast(0L)
-            val rawJson = (result as? TimetableResult.Success)?.rawJson
-            if (rawJson == null) {
+            val result = extractTimetable(prepared.jpeg) { progress ->
+                val switchNow = nowMillisProvider()
+                diag = diag.copy(
+                    activeModelName = progress.activeModelName,
+                    activeMode = progress.activeMode,
+                    usedFallbackModel = diag.usedFallbackModel || progress.isFallback,
+                    aiStartedAtMillis = switchNow,
+                    attempts = progress.completedAttempts,
+                    statusDetail = progress.reasonAr
+                        ?: "تم إرسال $sizeKb KB إلى ${progress.activeModelName} (${progress.activeMode.labelAr}) · في انتظار الرد…",
+                )
+                onDiagnostics(diag)
+            }
+            val aiLatency = (nowMillisProvider() - overallAiStart).coerceAtLeast(0L)
+            if (result !is TimetableResult.Success) {
                 diag = diag.copy(
                     latencyMillis = aiLatency,
+                    attempts = result.attempts,
                     statusDetail = result.diagnosticDetail ?: result.userMessage,
                 )
                 onDiagnostics(diag)
@@ -131,10 +160,16 @@ class CapturePipeline(
                 return err
             }
 
+            val rawJson = result.rawJson
+            val preview = rawJson.replace('\n', ' ').trim().take(160)
             diag = diag.copy(
+                activeModelName = result.modelUsed,
+                activeMode = result.modeUsed,
                 latencyMillis = aiLatency,
                 responseChars = rawJson.length,
-                statusDetail = "استلم ${rawJson.length} حرفاً من النموذج",
+                responsePreview = preview,
+                attempts = result.attempts,
+                statusDetail = "استلم ${rawJson.length} حرفاً من ${result.modelUsed} (${result.modeUsed.labelAr})",
             )
             onDiagnostics(diag)
             onStage(AnalysisStage.ValidatingSchedule)
@@ -144,11 +179,22 @@ class CapturePipeline(
                     is ExtractionFailure.NotAPrayerTimetable ->
                         "هذه الصورة لا تبدو جدول مواقيت. صوّر الجدول كاملاً."
                     is ExtractionFailure.InvalidDayCount ->
-                        "عدد أيام الجدول غير صالح."
+                        "عدد أيام الجدول المستخرج غير صالح (${failure.count})."
                     else ->
                         "تعذّر تحليل الجدول، راجع الصورة وحاول مجدداً."
                 }
-                diag = diag.copy(statusDetail = "فشل تحليل JSON: ${failure.javaClass.simpleName}")
+                val failureDetail = when (failure) {
+                    is ExtractionFailure.NotAPrayerTimetable -> "صُنّفت الصورة كغير جدول (not_a_prayer_timetable)"
+                    is ExtractionFailure.InvalidDayCount -> "عدد الأيام المستخرج = ${failure.count}"
+                    is ExtractionFailure.MissingField -> "حقل مفقود: ${failure.field}"
+                    is ExtractionFailure.MalformedJson -> "JSON غير صالح: ${failure.detail}"
+                    else -> failure.javaClass.simpleName
+                }
+                diag = diag.copy(
+                    responsePreview = preview,
+                    attempts = result.attempts,
+                    statusDetail = "فشل التحليل ($failureDetail)",
+                )
                 onDiagnostics(diag)
                 val err = AnalysisStage.Error(
                     message = msg,
@@ -160,7 +206,12 @@ class CapturePipeline(
 
             val validated = TimetableValidator.validate(parsed)
             val saved = saveValidatedSchedule(parsed, validated)
-            diag = diag.copy(statusDetail = "تم التحقق وحفظ ${saved.dayCount} يوماً بنجاح")
+            // Deduct quota only when a valid prayer timetable was successfully extracted and saved.
+            recordScanAttempt(nowMillisProvider(), todayProvider())
+            diag = diag.copy(
+                attempts = result.attempts,
+                statusDetail = "تم التحقق وحفظ ${saved.dayCount} يوماً بنجاح",
+            )
             onDiagnostics(diag)
             val success = AnalysisStage.Success(saved.scheduleId, saved.dayCount)
             onStage(success)

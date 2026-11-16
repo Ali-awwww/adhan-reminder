@@ -24,7 +24,7 @@ interface MonthScheduleDao {
     @Query("SELECT * FROM month_schedules WHERE status = 'APPROVED'")
     suspend fun getAllApproved(): List<MonthSchedule>
 
-    @Query("UPDATE month_schedules SET status = 'DRAFT' WHERE status = 'APPROVED'")
+    @Query("UPDATE month_schedules SET status = 'ARCHIVED' WHERE status = 'APPROVED'")
     suspend fun demoteAllApproved()
 
     @Insert

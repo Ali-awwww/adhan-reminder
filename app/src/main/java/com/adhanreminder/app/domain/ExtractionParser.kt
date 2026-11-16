@@ -14,7 +14,7 @@ object ExtractionParser {
     private val isoDateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 
     fun parse(raw: String): Result<ParsedTimetable> = runCatching {
-        val root = JSONObject(raw)
+        val root = JSONObject(cleanJsonPayload(raw))
         if (root.optString("error") == "not_a_prayer_timetable") throw ExtractionFailure.NotAPrayerTimetable
         val daysJson = root.optJSONArray("days") ?: throw ExtractionFailure.MissingField("days")
         if (daysJson.length() !in 1..31) throw ExtractionFailure.InvalidDayCount(daysJson.length())
@@ -145,6 +145,22 @@ object ExtractionParser {
             val obj = array.optJSONObject(i) ?: continue
             add(ReviewFlag(normalizeDate(obj.optString("gregorianDate")), obj.optString("field"), obj.optString("reason")))
         }
+    }
+
+    private fun cleanJsonPayload(raw: String): String {
+        var text = raw.trim().removePrefix("\uFEFF")
+        val fenceRegex = Regex("```(?:json)?\\s*([\\s\\S]*?)\\s*```", RegexOption.IGNORE_CASE)
+        fenceRegex.find(text)?.let { match ->
+            text = match.groupValues[1].trim()
+        }
+        if (!text.startsWith("{")) {
+            val firstBrace = text.indexOf('{')
+            val lastBrace = text.lastIndexOf('}')
+            if (firstBrace in 0 until lastBrace) {
+                text = text.substring(firstBrace, lastBrace + 1).trim()
+            }
+        }
+        return text
     }
 
     private fun JSONObject.optNullableString(name: String): String? = if (!has(name) || isNull(name)) null else optString(name).takeUnless { it.isBlank() }

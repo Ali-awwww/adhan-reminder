@@ -43,8 +43,10 @@ import com.adhanreminder.app.AdhanApplication
 import com.adhanreminder.app.data.local.PrayerDay
 import com.adhanreminder.app.domain.PrayerTimes24
 import com.adhanreminder.app.domain.ReviewFlag
+import com.adhanreminder.app.domain.ScheduleConflictReport
 import com.adhanreminder.app.domain.TimetableValidator
 import com.adhanreminder.app.scheduling.SchedulingEngine
+import com.adhanreminder.app.ui.theme.PlexMono
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -67,6 +69,8 @@ fun ReviewScreen(scheduleId: Long, onBack: () -> Unit, onApproved: () -> Unit) {
     var onlyFlagged by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<EditTarget?>(null) }
     var confirmApproval by remember { mutableStateOf(false) }
+    var conflictReport by remember { mutableStateOf<ScheduleConflictReport?>(null) }
+    var checkingOrSaving by remember { mutableStateOf(false) }
     var showStartDateDialog by remember { mutableStateOf(false) }
 
     val mandatoryFlagsCount = days.sumOf { day -> flagsOf(day).count { TimetableValidator.isMandatoryFlag(it) } }
@@ -174,10 +178,21 @@ fun ReviewScreen(scheduleId: Long, onBack: () -> Unit, onApproved: () -> Unit) {
         if (days.isEmpty()) Text("لا توجد أيام للعرض.")
 
         Button(
-            enabled = mandatoryFlagsCount == 0 && advisoryFlagsCount == 0 && days.isNotEmpty(),
-            onClick = { confirmApproval = true },
+            enabled = mandatoryFlagsCount == 0 && advisoryFlagsCount == 0 && days.isNotEmpty() && !checkingOrSaving,
+            onClick = {
+                scope.launch {
+                    checkingOrSaving = true
+                    val report = SchedulingEngine(context, app.repository, app.settings).inspectApprovalConflicts(scheduleId)
+                    checkingOrSaving = false
+                    if (report != null) {
+                        conflictReport = report
+                    } else {
+                        confirmApproval = true
+                    }
+                }
+            },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("review_approve_button"),
-        ) { Text("اعتماد وجدولة الشهر") }
+        ) { Text(if (checkingOrSaving) "جارٍ التحقق…" else "اعتماد وجدولة الشهر") }
         OutlinedButton(
             onClick = onBack,
             modifier = Modifier.heightIn(min = 48.dp).testTag("review_back_button"),
@@ -186,25 +201,60 @@ fun ReviewScreen(scheduleId: Long, onBack: () -> Unit, onApproved: () -> Unit) {
 
     if (confirmApproval) {
         AlertDialog(
-            onDismissRequest = { confirmApproval = false },
+            onDismissRequest = { if (!checkingOrSaving) confirmApproval = false },
             title = { Text("اعتماد الجدول؟") },
             text = { Text("سيصبح هذا الجدول هو المصدر الوحيد للتنبيهات، وستُعاد جدولة المنبهات. يمكنك تعديل الأيام لاحقاً من تبويب الجدول.") },
             confirmButton = {
                 Button(
+                    enabled = !checkingOrSaving,
                     onClick = {
                         confirmApproval = false
                         scope.launch {
+                            checkingOrSaving = true
                             SchedulingEngine(context, app.repository, app.settings).approveSchedule(scheduleId)
                             app.settings.clearPendingFajrNote()
+                            checkingOrSaving = false
                             onApproved()
                         }
                     },
-                    modifier = Modifier.testTag("review_confirm_approve_button"),
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("review_confirm_approve_button"),
                 ) { Text("اعتماد وجدولة") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmApproval = false }) { Text("إلغاء") }
+                TextButton(
+                    enabled = !checkingOrSaving,
+                    onClick = { confirmApproval = false },
+                ) { Text("إلغاء") }
             },
+        )
+    }
+
+    conflictReport?.let { report ->
+        ScheduleConflictDialog(
+            report = report,
+            busy = checkingOrSaving,
+            onMerge = {
+                scope.launch {
+                    checkingOrSaving = true
+                    SchedulingEngine(context, app.repository, app.settings)
+                        .approveWithMerge(newScheduleId = scheduleId, existingScheduleId = report.existingScheduleId)
+                    app.settings.clearPendingFajrNote()
+                    checkingOrSaving = false
+                    conflictReport = null
+                    onApproved()
+                }
+            },
+            onKeepLatest = {
+                scope.launch {
+                    checkingOrSaving = true
+                    SchedulingEngine(context, app.repository, app.settings).approveSchedule(scheduleId)
+                    app.settings.clearPendingFajrNote()
+                    checkingOrSaving = false
+                    conflictReport = null
+                    onApproved()
+                }
+            },
+            onDismiss = { if (!checkingOrSaving) conflictReport = null },
         )
     }
 
@@ -276,6 +326,99 @@ private fun StartDateDialog(
             ) { Text("تطبيق") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } },
+    )
+}
+
+@Composable
+private fun ScheduleConflictDialog(
+    report: ScheduleConflictReport,
+    busy: Boolean,
+    onMerge: () -> Unit,
+    onKeepLatest: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val previewLimit = 4
+    val extraCount = (report.conflicts.size - previewLimit).coerceAtLeast(0)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("تعارض في أوقات الصلاة") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    "يختلف هذا الجدول مع الجدول المعتمد حالياً (${report.existingScheduleLabel}) في ${report.conflicts.size} وقتاً ضمن ${report.conflictingDateCount} يوماً مشتركاً:",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("review_conflict_list_card"),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        report.conflicts.take(previewLimit).forEach { conflict ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "${conflict.gregorianDate} · ${conflict.prayerLabelAr}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Text(
+                                    "${conflict.existingTime} ← ${conflict.newTime}",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = PlexMono),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                        if (extraCount > 0) {
+                            Text(
+                                "و$extraCount فروقات أخرى في التواريخ المشتركة",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                if (report.nonOverlappingOldDayCount > 0) {
+                    Text(
+                        "• الدمج: يحفظ ${report.nonOverlappingOldDayCount} يوماً غير متعارض من السابق مع اعتماد الأحدث للأيام المشتركة وأرشفة الجدول القديم.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        "• الدمج أو الاحتفاظ بالأحدث سيعتمد أوقات هذا الجدول ويؤرشف الجدول السابق.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        enabled = !busy,
+                        onClick = onMerge,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("review_conflict_merge_button"),
+                    ) { Text("دمج البيانات (الأحدث للمشترك)") }
+                    OutlinedButton(
+                        enabled = !busy,
+                        onClick = onKeepLatest,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("review_conflict_keep_latest_button"),
+                    ) { Text("الاحتفاظ بالجدول الأحدث") }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(
+                enabled = !busy,
+                onClick = onDismiss,
+                modifier = Modifier.heightIn(min = 48.dp).testTag("review_conflict_cancel_button"),
+            ) { Text("إلغاء") }
+        },
     )
 }
 

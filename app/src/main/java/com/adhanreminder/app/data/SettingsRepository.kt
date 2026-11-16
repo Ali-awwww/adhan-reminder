@@ -38,6 +38,7 @@ class SettingsRepository(private val context: Context) {
         val lastScanAttemptMillis = longPreferencesKey("lastScanAttemptMillis")
         val pendingFajrNoteScheduleId = longPreferencesKey("pendingFajrNoteScheduleId")
         val pendingFajrNoteMinutes = intPreferencesKey("pendingFajrNoteMinutes")
+        val quotaResetEpoch = intPreferencesKey("quotaResetEpoch")
     }
 
     val reminderOffsetMinutes: Flow<Int> = context.settingsDataStore.data.map { it[Keys.reminderOffsetMinutes]?.takeIf { value -> value in 1..60 } ?: 10 }
@@ -101,6 +102,20 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.scanMonthKey] = updated.monthKey
             prefs[Keys.scanMonthlyCount] = updated.monthlyCount
             prefs[Keys.lastScanAttemptMillis] = updated.lastAttemptMillis
+        }
+    }
+
+    suspend fun ensureQuotaResetEpoch(epoch: Int) {
+        edit { prefs ->
+            val currentEpoch = prefs[Keys.quotaResetEpoch] ?: 0
+            if (currentEpoch < epoch) {
+                prefs.remove(Keys.scanDayKey)
+                prefs.remove(Keys.scanDailyCount)
+                prefs.remove(Keys.scanMonthKey)
+                prefs.remove(Keys.scanMonthlyCount)
+                prefs.remove(Keys.lastScanAttemptMillis)
+                prefs[Keys.quotaResetEpoch] = epoch
+            }
         }
     }
 

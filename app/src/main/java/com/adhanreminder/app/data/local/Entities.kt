@@ -68,6 +68,6 @@ data class ScheduledAlarm(
     val fired: Boolean = false,
 )
 
-enum class ScheduleStatus { DRAFT, APPROVED }
+enum class ScheduleStatus { DRAFT, APPROVED, ARCHIVED }
 
 enum class PrayerKey { FAJR, DHUHR, ASR, MAGHRIB, ISHA }

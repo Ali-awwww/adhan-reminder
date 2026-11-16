@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.adhanreminder.app.AdhanApplication
 import com.adhanreminder.app.data.AppCheckStatus
+import com.adhanreminder.app.data.AttemptDiagnostic
+import com.adhanreminder.app.data.ServerProbeResult
 import com.adhanreminder.app.data.local.MonthSchedule
 import com.adhanreminder.app.data.local.PrayerDay
 import com.adhanreminder.app.data.prepareForUpload
@@ -29,14 +31,22 @@ import org.json.JSONObject
 import java.io.File
 import kotlin.coroutines.coroutineContext
 
+sealed interface ServerProbeState {
+    data object Idle : ServerProbeState
+    data class Running(val completedAttempts: List<AttemptDiagnostic> = emptyList()) : ServerProbeState
+    data class Done(val result: ServerProbeResult) : ServerProbeState
+}
+
 data class CaptureUiState(
     val selectedImageUri: Uri? = null,
     val stage: AnalysisStage = AnalysisStage.Idle,
     val quotaRecord: ScanQuotaRecord = ScanQuotaRecord(),
     val nowMillis: Long = System.currentTimeMillis(),
     val diagnostics: CaptureDiagnostics = CaptureDiagnostics(),
+    val probeState: ServerProbeState = ServerProbeState.Idle,
 ) {
     val isBusy: Boolean get() = stage.isBusy
+    val isProbing: Boolean get() = probeState is ServerProbeState.Running
     val quotaStatus: ScanQuotaStatus get() = ScanQuotaPolicy.evaluate(quotaRecord, nowMillis)
 }
 
@@ -47,12 +57,14 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     private var stagedCameraUri: Uri? = null
     private var activeCameraFile: File? = null
     private var analysisJob: Job? = null
+    private var probeJob: Job? = null
 
     private val _uiState = MutableStateFlow(CaptureUiState())
     val uiState: StateFlow<CaptureUiState> = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
+            app.settings.ensureQuotaResetEpoch(QUOTA_RESET_EPOCH)
             app.settings.scanQuotaRecord.collect { record ->
                 _uiState.update { it.copy(quotaRecord = record, nowMillis = System.currentTimeMillis()) }
             }
@@ -167,7 +179,7 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
                 prepareImage = { prepareForUpload(app.contentResolver, uri) },
                 getQuotaRecord = { app.settings.scanQuotaRecord.first() },
                 recordScanAttempt = { now, today -> app.settings.recordScanAttempt(now, today) },
-                extractTimetable = { jpeg -> app.gemini.extractTimetable(jpeg) },
+                extractTimetable = { jpeg, onAttempt -> app.gemini.extractTimetable(jpeg, onAttempt) },
                 saveValidatedSchedule = { parsed, validated ->
                     val label = listOfNotNull(parsed.hijriMonthName, parsed.hijriYear?.toString())
                         .joinToString(" ")
@@ -241,6 +253,42 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
         job.start()
     }
 
+    fun runServerProbe() {
+        val current = _uiState.value
+        if (current.isBusy || current.isProbing) return
+        probeJob?.cancel()
+        _uiState.update { it.copy(probeState = ServerProbeState.Running(emptyList())) }
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            val thisJob = coroutineContext[Job]
+            val progressList = mutableListOf<AttemptDiagnostic>()
+            try {
+                val result = app.gemini.probeServer { attempt ->
+                    if (probeJob === thisJob) {
+                        progressList += attempt
+                        _uiState.update { it.copy(probeState = ServerProbeState.Running(progressList.toList())) }
+                    }
+                }
+                if (probeJob === thisJob) {
+                    _uiState.update { it.copy(probeState = ServerProbeState.Done(result)) }
+                }
+            } finally {
+                if (probeJob === thisJob) {
+                    probeJob = null
+                }
+            }
+        }
+        probeJob = job
+        job.start()
+    }
+
+    fun dismissProbeResult() {
+        if (_uiState.value.isProbing) {
+            probeJob?.cancel()
+            probeJob = null
+        }
+        _uiState.update { it.copy(probeState = ServerProbeState.Idle) }
+    }
+
     fun consumeSuccess() {
         _uiState.update {
             it.copy(
@@ -255,9 +303,15 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
         super.onCleared()
         analysisJob?.cancel()
         analysisJob = null
+        probeJob?.cancel()
+        probeJob = null
         stagedCameraFile?.delete()
         stagedCameraFile = null
         activeCameraFile?.delete()
         activeCameraFile = null
+    }
+
+    companion object {
+        private const val QUOTA_RESET_EPOCH = 2
     }
 }
