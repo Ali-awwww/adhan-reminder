@@ -55,14 +55,14 @@ jobs:
           test -n "$ANDROID_KEYSTORE_BASE64"
           test -n "$KEYSTORE_PASSWORD"
           test -n "$KEY_ALIAS"
-          test -n "$KEY_PASSWORD"
+          KEY_PASSWORD_EFFECTIVE="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_FILE"
           chmod 600 "$ANDROID_KEYSTORE_FILE"
           {
             printf 'storeFile=%s\n' "$ANDROID_KEYSTORE_FILE"
             printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
             printf 'keyAlias=%s\n' "$KEY_ALIAS"
-            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD_EFFECTIVE"
           } > "$KEYSTORE_PROPERTIES_FILE"
           chmod 600 "$ANDROID_KEYSTORE_FILE" "$KEYSTORE_PROPERTIES_FILE"
 
