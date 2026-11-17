@@ -47,18 +47,22 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$RELEASE_CONFIG_BASE64"
+          export JSON_CONFIG
           JSON_CONFIG=$(printf '%s' "$RELEASE_CONFIG_BASE64" | base64 --decode)
-          python3 -c '
-          import json, os, base64
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+
           data = json.loads(os.environ["JSON_CONFIG"])
           with open("adhan-release.jks", "wb") as f:
               f.write(base64.b64decode(data["keystore_base64"]))
           with open("keystore.properties", "w") as f:
               f.write("storeFile=adhan-release.jks\n")
-              f.write(f"storePassword={data[\"store_password\"]}\n")
-              f.write(f"keyAlias={data[\"key_alias\"]}\n")
-              f.write(f"keyPassword={data[\"key_password\"]}\n")
-          '
+              f.write("storePassword={}\n".format(data["store_password"]))
+              f.write("keyAlias={}\n".format(data["key_alias"]))
+              f.write("keyPassword={}\n".format(data["key_password"]))
+          PY
           chmod 600 "$ANDROID_KEYSTORE_FILE" "$KEYSTORE_PROPERTIES_FILE"
 
       - name: Run tests and build release
