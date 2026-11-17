@@ -55,8 +55,10 @@ jobs:
           import os
 
           data = json.loads(os.environ["JSON_CONFIG"])
+          keystore_b64 = data["keystore_base64"]
+          keystore_b64 += "=" * (-len(keystore_b64) % 4)
           with open("adhan-release.jks", "wb") as f:
-              f.write(base64.b64decode(data["keystore_base64"]))
+              f.write(base64.b64decode(keystore_b64))
           with open("keystore.properties", "w") as f:
               f.write("storeFile=adhan-release.jks\n")
               f.write("storePassword={}\n".format(data["store_password"]))
