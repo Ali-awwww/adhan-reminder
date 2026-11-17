@@ -14,6 +14,7 @@ import com.adhanreminder.app.data.prepareForUpload
 import com.adhanreminder.app.domain.AnalysisStage
 import com.adhanreminder.app.domain.CaptureDiagnostics
 import com.adhanreminder.app.domain.CapturePipeline
+import com.adhanreminder.app.domain.CaptureSessionController
 import com.adhanreminder.app.domain.PersistedDraftResult
 import com.adhanreminder.app.domain.ScanQuotaPolicy
 import com.adhanreminder.app.domain.ScanQuotaRecord
@@ -23,6 +24,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -56,23 +58,46 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     private var stagedCameraFile: File? = null
     private var stagedCameraUri: Uri? = null
     private var activeCameraFile: File? = null
-    private var analysisJob: Job? = null
     private var probeJob: Job? = null
+
+    private val session = CaptureSessionController<Uri>(
+        scope = viewModelScope,
+        pipelineFactory = { uri -> buildPipeline(uri) },
+        appCheckProvider = { AppCheckStatus.current },
+    )
+
+    private val quotaRecordState = MutableStateFlow(ScanQuotaRecord())
+    private val probeStateFlow = MutableStateFlow<ServerProbeState>(ServerProbeState.Idle)
 
     private val _uiState = MutableStateFlow(CaptureUiState())
     val uiState: StateFlow<CaptureUiState> = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
+            combine(session.state, quotaRecordState, probeStateFlow) { sessionState, quota, probe ->
+                CaptureUiState(
+                    selectedImageUri = sessionState.selectedImage,
+                    stage = sessionState.stage,
+                    quotaRecord = quota,
+                    nowMillis = sessionState.nowMillis,
+                    diagnostics = sessionState.diagnostics,
+                    probeState = probe,
+                )
+            }.collect { combined ->
+                _uiState.value = combined
+            }
+        }
+        viewModelScope.launch {
             app.settings.ensureQuotaResetEpoch(QUOTA_RESET_EPOCH)
             app.settings.scanQuotaRecord.collect { record ->
-                _uiState.update { it.copy(quotaRecord = record, nowMillis = System.currentTimeMillis()) }
+                quotaRecordState.value = record
+                session.refreshClock()
             }
         }
     }
 
     fun refreshClock() {
-        _uiState.update { it.copy(nowMillis = System.currentTimeMillis()) }
+        session.refreshClock()
     }
 
     fun prepareCameraTarget(file: File, uri: Uri) {
@@ -82,20 +107,17 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onCameraResult(success: Boolean) {
-        if (success && stagedCameraUri != null) {
+        val uri = stagedCameraUri
+        if (success && uri != null) {
             if (activeCameraFile != stagedCameraFile) {
                 activeCameraFile?.delete()
             }
             activeCameraFile = stagedCameraFile
-            val uri = stagedCameraUri
             stagedCameraFile = null
             stagedCameraUri = null
-            _uiState.update {
-                it.copy(
-                    selectedImageUri = uri,
-                    stage = AnalysisStage.PreviewReady,
-                    diagnostics = CaptureDiagnostics(),
-                )
+            session.selectImage(uri, autoStart = true) {
+                activeCameraFile?.delete()
+                activeCameraFile = null
             }
         } else {
             stagedCameraFile?.delete()
@@ -105,16 +127,10 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onGalleryImageSelected(uri: Uri) {
-        if (_uiState.value.isBusy) return
+        if (session.state.value.isBusy) return
         activeCameraFile?.delete()
         activeCameraFile = null
-        _uiState.update {
-            it.copy(
-                selectedImageUri = uri,
-                stage = AnalysisStage.PreviewReady,
-                diagnostics = CaptureDiagnostics(),
-            )
-        }
+        session.selectImage(uri, autoStart = true)
     }
 
     fun onSampleTimetableSelected(uri: Uri) {
@@ -122,142 +138,70 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun resetSelection() {
-        if (_uiState.value.isBusy) return
-        activeCameraFile?.delete()
-        activeCameraFile = null
-        _uiState.update {
-            it.copy(
-                selectedImageUri = null,
-                stage = AnalysisStage.Idle,
-                diagnostics = CaptureDiagnostics(),
-            )
+        if (session.resetSelection()) {
+            activeCameraFile?.delete()
+            activeCameraFile = null
         }
     }
 
     fun cancelAnalysis() {
-        val current = _uiState.value
-        if (!current.isBusy) return
-        analysisJob?.cancel()
-        analysisJob = null
-        val now = System.currentTimeMillis()
-        val elapsed = current.diagnostics.aiStartedAtMillis?.let { (now - it).coerceAtLeast(0L) }
-        _uiState.update { state ->
-            state.copy(
-                stage = AnalysisStage.PreviewReady,
-                nowMillis = now,
-                diagnostics = state.diagnostics.copy(
-                    isCancelled = true,
-                    latencyMillis = elapsed ?: state.diagnostics.latencyMillis,
-                    statusDetail = "تم إلغاء الطلب بواسطة المستخدم",
-                ),
-            )
-        }
+        session.cancelAnalysis()
     }
 
     fun startAnalysis() {
-        val current = _uiState.value
-        val uri = current.selectedImageUri ?: return
-        if (current.isBusy || current.stage is AnalysisStage.Success) return
-
-        val appCheck = AppCheckStatus.current
-        val initialDiagnostics = CaptureDiagnostics(
-            appCheckLabel = appCheck.labelAr,
-            appCheckDetail = appCheck.detailAr,
-            statusDetail = "بدء تجهيز الصورة…",
-        )
-        _uiState.update {
-            it.copy(
-                diagnostics = initialDiagnostics,
-                nowMillis = System.currentTimeMillis(),
-            )
+        session.startAnalysis {
+            activeCameraFile?.delete()
+            activeCameraFile = null
         }
-
-        analysisJob?.cancel()
-        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
-            val thisJob = coroutineContext[Job]
-            val pipeline = CapturePipeline(
-                prepareImage = { prepareForUpload(app.contentResolver, uri) },
-                getQuotaRecord = { app.settings.scanQuotaRecord.first() },
-                recordScanAttempt = { now, today -> app.settings.recordScanAttempt(now, today) },
-                extractTimetable = { jpeg, onAttempt -> app.gemini.extractTimetable(jpeg, onAttempt) },
-                saveValidatedSchedule = { parsed, validated ->
-                    val label = listOfNotNull(parsed.hijriMonthName, parsed.hijriYear?.toString())
-                        .joinToString(" ")
-                        .ifBlank { "جدول جديد" }
-                    val scheduleId = app.repository.insertSchedule(
-                        MonthSchedule(
-                            hijriMonthLabel = label,
-                            createdAtMillis = System.currentTimeMillis(),
-                            sourceImagePath = null,
-                        )
-                    )
-                    app.repository.insertPrayerDays(validated.days.map { day ->
-                        PrayerDay(
-                            scheduleId = scheduleId,
-                            gregorianDate = day.gregorianDate,
-                            hijriDay = day.hijriDay,
-                            fajr = day.times.fajr.orEmpty(),
-                            dhuhr = day.times.dhuhr.orEmpty(),
-                            asr = day.times.asr.orEmpty(),
-                            maghrib = day.times.maghrib.orEmpty(),
-                            isha = day.times.isha.orEmpty(),
-                            reviewFlagsJson = JSONArray(day.flags.map {
-                                JSONObject()
-                                    .put("gregorianDate", it.gregorianDate)
-                                    .put("field", it.field)
-                                    .put("reason", it.reason)
-                            }).toString(),
-                        )
-                    })
-                    val extractedNote = parsed.fajrNoteMinutes
-                    if (extractedNote != null && extractedNote in 0..60) {
-                        app.settings.setPendingFajrNote(scheduleId, extractedNote)
-                    }
-                    PersistedDraftResult(scheduleId, validated.days.size)
-                },
-            )
-
-            try {
-                val finalStage = pipeline.execute(
-                    initialDiagnostics = initialDiagnostics,
-                    onDiagnostics = { diag ->
-                        if (analysisJob === thisJob) {
-                            _uiState.update { state ->
-                                state.copy(
-                                    diagnostics = diag.copy(
-                                        appCheckLabel = appCheck.labelAr,
-                                        appCheckDetail = appCheck.detailAr,
-                                    ),
-                                    nowMillis = System.currentTimeMillis(),
-                                )
-                            }
-                        }
-                    },
-                    onStage = { stage ->
-                        if (analysisJob === thisJob) {
-                            _uiState.update { it.copy(stage = stage, nowMillis = System.currentTimeMillis()) }
-                        }
-                    },
-                )
-                if (finalStage is AnalysisStage.Success && analysisJob === thisJob) {
-                    activeCameraFile?.delete()
-                    activeCameraFile = null
-                }
-            } finally {
-                if (analysisJob === thisJob) {
-                    analysisJob = null
-                }
-            }
-        }
-        analysisJob = job
-        job.start()
     }
+
+    private fun buildPipeline(uri: Uri): CapturePipeline = CapturePipeline(
+        prepareImage = { prepareForUpload(app.contentResolver, uri) },
+        getQuotaRecord = { app.settings.scanQuotaRecord.first() },
+        recordScanAttempt = { now, today -> app.settings.recordScanAttempt(now, today) },
+        extractTimetable = { jpeg, onAttempt -> app.gemini.extractTimetable(jpeg, onAttempt) },
+        saveValidatedSchedule = { parsed, validated ->
+            val label = listOfNotNull(parsed.hijriMonthName, parsed.hijriYear?.toString())
+                .joinToString(" ")
+                .ifBlank { "جدول جديد" }
+            val scheduleId = app.repository.insertSchedule(
+                MonthSchedule(
+                    hijriMonthLabel = label,
+                    createdAtMillis = System.currentTimeMillis(),
+                    sourceImagePath = null,
+                )
+            )
+            app.repository.insertPrayerDays(validated.days.map { day ->
+                PrayerDay(
+                    scheduleId = scheduleId,
+                    gregorianDate = day.gregorianDate,
+                    hijriDay = day.hijriDay,
+                    fajr = day.times.fajr.orEmpty(),
+                    dhuhr = day.times.dhuhr.orEmpty(),
+                    asr = day.times.asr.orEmpty(),
+                    maghrib = day.times.maghrib.orEmpty(),
+                    isha = day.times.isha.orEmpty(),
+                    reviewFlagsJson = JSONArray(day.flags.map {
+                        JSONObject()
+                            .put("gregorianDate", it.gregorianDate)
+                            .put("field", it.field)
+                            .put("reason", it.reason)
+                    }).toString(),
+                )
+            })
+            val extractedNote = parsed.fajrNoteMinutes
+            if (extractedNote != null && extractedNote in 0..60) {
+                app.settings.setPendingFajrNote(scheduleId, extractedNote)
+            }
+            PersistedDraftResult(scheduleId, validated.days.size)
+        },
+    )
 
     fun runServerProbe() {
         val current = _uiState.value
         if (current.isBusy || current.isProbing) return
         probeJob?.cancel()
-        _uiState.update { it.copy(probeState = ServerProbeState.Running(emptyList())) }
+        probeStateFlow.value = ServerProbeState.Running(emptyList())
         val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             val thisJob = coroutineContext[Job]
             val progressList = mutableListOf<AttemptDiagnostic>()
@@ -265,11 +209,11 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
                 val result = app.gemini.probeServer { attempt ->
                     if (probeJob === thisJob) {
                         progressList += attempt
-                        _uiState.update { it.copy(probeState = ServerProbeState.Running(progressList.toList())) }
+                        probeStateFlow.value = ServerProbeState.Running(progressList.toList())
                     }
                 }
                 if (probeJob === thisJob) {
-                    _uiState.update { it.copy(probeState = ServerProbeState.Done(result)) }
+                    probeStateFlow.value = ServerProbeState.Done(result)
                 }
             } finally {
                 if (probeJob === thisJob) {
@@ -286,23 +230,16 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
             probeJob?.cancel()
             probeJob = null
         }
-        _uiState.update { it.copy(probeState = ServerProbeState.Idle) }
+        probeStateFlow.value = ServerProbeState.Idle
     }
 
     fun consumeSuccess() {
-        _uiState.update {
-            it.copy(
-                selectedImageUri = null,
-                stage = AnalysisStage.Idle,
-                diagnostics = CaptureDiagnostics(),
-            )
-        }
+        session.consumeSuccess()
     }
 
     override fun onCleared() {
         super.onCleared()
-        analysisJob?.cancel()
-        analysisJob = null
+        session.clear()
         probeJob?.cancel()
         probeJob = null
         stagedCameraFile?.delete()

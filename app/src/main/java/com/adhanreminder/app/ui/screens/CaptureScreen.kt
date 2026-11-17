@@ -200,6 +200,13 @@ fun CaptureScreen(
                     Text("تجربة جدول جاهز", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
+
+            Text(
+                "تبدأ قراءة المواقيت بالذكاء الاصطناعي تلقائياً فور تصوير الجدول أو اختيار الصورة.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("capture_auto_scan_hint"),
+            )
         } else {
             TimetablePreviewWithScanner(
                 imageUri = imageUri,

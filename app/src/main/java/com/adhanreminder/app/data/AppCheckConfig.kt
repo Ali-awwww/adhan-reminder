@@ -30,15 +30,26 @@ object AppCheckStatus {
 
 fun configureAppCheck(context: Context, intent: Intent?) {
     try {
-        if (FirebaseApp.getApps(context).isEmpty()) {
+        val firebaseApp = if (FirebaseApp.getApps(context).isEmpty()) {
             FirebaseApp.initializeApp(context)
+        } else {
+            FirebaseApp.getInstance()
+        }
+        if (firebaseApp == null) {
+            Log.e(TAG, "FirebaseApp.initializeApp returned null; check google-services.json configuration.")
+            AppCheckStatus.current = AppCheckDiagnostics(
+                initialized = false,
+                labelAr = "غير مهيأ · إعدادات Firebase مفقودة",
+                detailAr = "تعذّرت تهيئة FirebaseApp من google-services.json",
+            )
+            return
         }
 
         if (BuildConfig.DEBUG) {
             val debugToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)
 
             if (!debugToken.isNullOrEmpty()) {
-                val persistenceKey = FirebaseApp.getInstance().persistenceKey
+                val persistenceKey = firebaseApp.persistenceKey
                 val prefs = context.getSharedPreferences(
                     "$DEBUG_STORE_PREFIX$persistenceKey",
                     Context.MODE_PRIVATE

@@ -46,6 +46,38 @@ suspend fun prepareForUpload(contentResolver: ContentResolver, uri: Uri): ImageP
     }
 }
 
+suspend fun prepareBitmapForUpload(bitmap: Bitmap): ImagePreparationResult = withContext(Dispatchers.IO) {
+    var scaled: Bitmap? = null
+    try {
+        if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) {
+            return@withContext ImagePreparationResult.Failure
+        }
+        val longest = maxOf(bitmap.width, bitmap.height)
+        val target = if (longest > MAX_DIMENSION_PX) {
+            val scale = MAX_DIMENSION_PX.toFloat() / longest
+            val targetW = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val targetH = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(bitmap, targetW, targetH, true).also { scaled = it }
+        } else {
+            bitmap
+        }
+        fun compress(quality: Int): ByteArray = ByteArrayOutputStream().use { out ->
+            target.compress(Bitmap.CompressFormat.JPEG, quality, out)
+            out.toByteArray()
+        }
+        var bytes = compress(90)
+        if (bytes.size > MAX_UPLOAD_BYTES) bytes = compress(70)
+        if (bytes.isEmpty() || bytes.size > MAX_UPLOAD_BYTES) return@withContext ImagePreparationResult.Failure
+        ImagePreparationResult.Success(bytes)
+    } catch (_: Exception) {
+        ImagePreparationResult.Failure
+    } finally {
+        if (scaled != null && scaled !== bitmap && !scaled!!.isRecycled) {
+            scaled!!.recycle()
+        }
+    }
+}
+
 private fun tryPassThroughSmallJpeg(contentResolver: ContentResolver, uri: Uri): ByteArray? {
     val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     contentResolver.openInputStream(uri)?.use { stream ->
