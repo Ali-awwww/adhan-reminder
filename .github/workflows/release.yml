@@ -36,25 +36,23 @@ jobs:
       - name: Restore signing files from GitHub Secrets
         shell: bash
         env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          RELEASE_CONFIG_BASE64: ${{ secrets.RELEASE_CONFIG_BASE64 }}
         run: |
           set -euo pipefail
-          test -n "$ANDROID_KEYSTORE_BASE64"
-          test -n "$KEYSTORE_PASSWORD"
-          test -n "$KEY_ALIAS"
-          test -n "$KEY_PASSWORD"
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_FILE"
-          chmod 600 "$ANDROID_KEYSTORE_FILE"
-          {
-            printf 'storeFile=%s\n' "$ANDROID_KEYSTORE_FILE"
-            printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
-            printf 'keyAlias=%s\n' "$KEY_ALIAS"
-            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
-          } > "$KEYSTORE_PROPERTIES_FILE"
-          chmod 600 "$KEYSTORE_PROPERTIES_FILE"
+          test -n "$RELEASE_CONFIG_BASE64"
+          JSON_CONFIG=$(printf '%s' "$RELEASE_CONFIG_BASE64" | base64 --decode)
+          python3 -c '
+          import json, os, base64
+          data = json.loads(os.environ["JSON_CONFIG"])
+          with open("adhan-release.jks", "wb") as f:
+              f.write(base64.b64decode(data["keystore_base64"]))
+          with open("keystore.properties", "w") as f:
+              f.write("storeFile=adhan-release.jks\n")
+              f.write(f"storePassword={data[\"store_password\"]}\n")
+              f.write(f"keyAlias={data[\"key_alias\"]}\n")
+              f.write(f"keyPassword={data[\"key_password\"]}\n")
+          '
+          chmod 600 "$ANDROID_KEYSTORE_FILE" "$KEYSTORE_PROPERTIES_FILE"
 
       - name: Run tests and build release
         run: ./gradlew --no-daemon test lint assembleRelease
