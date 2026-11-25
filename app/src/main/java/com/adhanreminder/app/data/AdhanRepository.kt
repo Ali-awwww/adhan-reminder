@@ -15,6 +15,7 @@ class AdhanRepository(
 ) {
     fun observeSchedules(): Flow<List<MonthSchedule>> = monthScheduleDao.observeAll()
     fun observeSchedule(scheduleId: Long): Flow<MonthSchedule?> = monthScheduleDao.observeById(scheduleId)
+    suspend fun getScheduleCount(): Int = monthScheduleDao.count()
     suspend fun getSchedule(scheduleId: Long): MonthSchedule? = monthScheduleDao.getById(scheduleId)
     suspend fun getLatestApprovedSchedule(): MonthSchedule? = monthScheduleDao.getLatestApproved()
     suspend fun demoteAllApprovedSchedules() = monthScheduleDao.demoteAllApproved()

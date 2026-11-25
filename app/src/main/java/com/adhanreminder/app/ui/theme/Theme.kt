@@ -12,28 +12,38 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.adhanreminder.app.R
 
-private val DarkColors = darkColorScheme(
-    background = AdhanColors.darkBackground,
-    surface = AdhanColors.darkSurface,
-    surfaceVariant = AdhanColors.darkRaised,
-    primary = AdhanColors.darkText,
-    onPrimary = AdhanColors.darkBackground,
-    onBackground = AdhanColors.darkText,
-    onSurface = AdhanColors.darkText,
-    onSurfaceVariant = AdhanColors.darkSecondary,
-    outline = AdhanColors.darkBorder,
-)
-
 private val LightColors = lightColorScheme(
     background = AdhanColors.lightBackground,
     surface = AdhanColors.lightSurface,
     surfaceVariant = AdhanColors.lightRaised,
-    primary = AdhanColors.lightText,
-    onPrimary = AdhanColors.lightBackground,
+    primary = AdhanColors.lightPrimary,
+    onPrimary = AdhanColors.lightOnPrimary,
+    primaryContainer = AdhanColors.lightPrimaryContainer,
+    onPrimaryContainer = AdhanColors.lightOnPrimaryContainer,
+    secondary = AdhanColors.lightSecondaryAccent,
+    onSecondary = AdhanColors.lightOnPrimary,
     onBackground = AdhanColors.lightText,
     onSurface = AdhanColors.lightText,
     onSurfaceVariant = AdhanColors.lightSecondary,
     outline = AdhanColors.lightBorder,
+    outlineVariant = AdhanColors.lightBorder,
+    error = AdhanColors.lightError,
+)
+
+private val DarkColors = darkColorScheme(
+    background = AdhanColors.darkBackground,
+    surface = AdhanColors.darkSurface,
+    surfaceVariant = AdhanColors.darkRaised,
+    primary = AdhanColors.darkPrimary,
+    onPrimary = AdhanColors.darkOnPrimary,
+    primaryContainer = AdhanColors.darkPrimaryContainer,
+    onPrimaryContainer = AdhanColors.darkOnPrimaryContainer,
+    onBackground = AdhanColors.darkText,
+    onSurface = AdhanColors.darkText,
+    onSurfaceVariant = AdhanColors.darkSecondary,
+    outline = AdhanColors.darkBorder,
+    outlineVariant = AdhanColors.darkBorder,
+    error = AdhanColors.darkError,
 )
 
 val PlexArabic = FontFamily(
@@ -45,19 +55,23 @@ val PlexArabic = FontFamily(
 val PlexMono = FontFamily(Font(R.font.ibm_plex_mono_regular))
 
 private val AppTypography = Typography(
-    titleLarge = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Bold, fontSize = AdhanTypeScale.screenTitle),
-    headlineMedium = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Bold, fontSize = AdhanTypeScale.screenTitle),
-    headlineLarge = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Bold, fontSize = 44.sp),
-    headlineSmall = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Medium, fontSize = 24.sp),
-    bodyLarge = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Normal, fontSize = AdhanTypeScale.body),
-    bodyMedium = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Normal, fontSize = AdhanTypeScale.body),
-    bodySmall = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Normal, fontSize = AdhanTypeScale.secondary),
-    labelLarge = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Medium, fontSize = AdhanTypeScale.prayerTime),
-    labelMedium = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Normal, fontSize = AdhanTypeScale.secondary),
+    displayLarge = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Bold, fontSize = AdhanTypeScale.heroCountdown, lineHeight = 54.sp),
+    headlineLarge = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Bold, fontSize = 40.sp, lineHeight = 48.sp),
+    headlineMedium = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Bold, fontSize = AdhanTypeScale.screenTitle, lineHeight = 36.sp),
+    headlineSmall = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Bold, fontSize = 26.sp, lineHeight = 34.sp),
+    titleLarge = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Bold, fontSize = AdhanTypeScale.screenTitle, lineHeight = 36.sp),
+    titleMedium = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Bold, fontSize = AdhanTypeScale.cardTitle, lineHeight = 30.sp),
+    titleSmall = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 28.sp),
+    bodyLarge = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Normal, fontSize = AdhanTypeScale.body, lineHeight = 27.sp),
+    bodyMedium = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Normal, fontSize = AdhanTypeScale.body, lineHeight = 27.sp),
+    bodySmall = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Normal, fontSize = AdhanTypeScale.secondary, lineHeight = 23.sp),
+    labelLarge = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 26.sp),
+    labelMedium = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Medium, fontSize = AdhanTypeScale.secondary, lineHeight = 22.sp),
+    labelSmall = TextStyle(fontFamily = PlexArabic, fontWeight = FontWeight.Medium, fontSize = AdhanTypeScale.secondary, lineHeight = 22.sp),
 )
 
 @Composable
-fun AdhanReminderTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
+fun AdhanReminderTheme(darkTheme: Boolean = false, content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
         typography = AppTypography,

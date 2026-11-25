@@ -118,15 +118,28 @@ fun CaptureScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("التصوير", style = MaterialTheme.typography.titleLarge)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("صوّر الجدول", style = MaterialTheme.typography.titleLarge)
+            OutlinedButton(
+                onClick = onBack,
+                enabled = !uiState.isBusy,
+                modifier = Modifier.heightIn(min = 52.dp).testTag("capture_back_button"),
+                shape = RoundedCornerShape(12.dp),
+            ) { Text("رجوع", style = MaterialTheme.typography.labelLarge) }
+        }
 
         Card(
             modifier = Modifier.fillMaxWidth().testTag("capture_quota_card"),
+            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     "رصيد القراءة المتبقي: اليوم ${quotaStatus.dailyRemaining}/${ScanQuotaPolicy.MAX_DAILY_SCANS} · هذا الشهر ${quotaStatus.monthlyRemaining}/${ScanQuotaPolicy.MAX_MONTHLY_SCANS}",
                     style = MaterialTheme.typography.bodySmall,
@@ -144,10 +157,12 @@ fun CaptureScreen(
         OutlinedButton(
             onClick = { vm.runServerProbe() },
             enabled = !uiState.isBusy && !uiState.isProbing,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("capture_probe_server_button"),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("capture_probe_server_button"),
+            shape = RoundedCornerShape(12.dp),
         ) {
             Text(
                 if (uiState.isProbing) "جارٍ فحص اتصال الخادم…" else "فحص اتصال الخادم (دون خصم رصيد)",
+                style = MaterialTheme.typography.labelLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -174,35 +189,33 @@ fun CaptureScreen(
                     vm.prepareCameraTarget(file, uri)
                     cameraLauncher.launch(uri)
                 },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("capture_take_photo_button"),
-            ) { Text("تصوير الجدول") }
+                modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).testTag("capture_take_photo_button"),
+                shape = RoundedCornerShape(16.dp),
+            ) { Text("تصوير الجدول بالكاميرا", style = MaterialTheme.typography.titleMedium) }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            OutlinedButton(
+                onClick = { galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp).testTag("capture_pick_gallery_button"),
+                shape = RoundedCornerShape(16.dp),
             ) {
-                OutlinedButton(
-                    onClick = { galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("capture_pick_gallery_button"),
-                ) {
-                    Text("اختيار من المعرض", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+                Text("اختيار صورة من المعرض", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
 
-                OutlinedButton(
-                    onClick = {
-                        val sampleUri = Uri.parse("android.resource://${context.packageName}/${R.drawable.sample_timetable}")
-                        vm.onSampleTimetableSelected(sampleUri)
-                    },
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("capture_sample_timetable_button"),
-                ) {
-                    Text("تجربة جدول جاهز", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+            OutlinedButton(
+                onClick = {
+                    val sampleUri = Uri.parse("android.resource://${context.packageName}/${R.drawable.sample_timetable}")
+                    vm.onSampleTimetableSelected(sampleUri)
+                },
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("capture_sample_timetable_button"),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text("تجربة جدول جاهز", style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
 
             Text(
-                "تبدأ قراءة المواقيت بالذكاء الاصطناعي تلقائياً فور تصوير الجدول أو اختيار الصورة.",
+                "تبدأ قراءة المواقيت تلقائياً فور التصوير أو اختيار الصورة، وتُرسل الصورة لمرة واحدة لقراءة الأوقات ثم تُحفظ محلياً في جهازك للمراجعة قبل الاعتماد.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("capture_auto_scan_hint"),
@@ -217,6 +230,7 @@ fun CaptureScreen(
             if (stage is AnalysisStage.PreviewReady && !diagnostics.isCancelled) {
                 Text(
                     "الجدول كله داخل الإطار، والضوء من الأمام",
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -285,12 +299,6 @@ fun CaptureScreen(
                 )
             }
         }
-
-        OutlinedButton(
-            onClick = onBack,
-            enabled = !uiState.isBusy,
-            modifier = Modifier.heightIn(min = 48.dp).testTag("capture_back_button"),
-        ) { Text("رجوع") }
     }
 }
 

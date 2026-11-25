@@ -32,7 +32,8 @@ object RescanReminder {
         NotificationChannels.ensureRescan(context)
         val operation = PendingIntent.getBroadcast(context, REQUEST_CODE, Intent(context, RescanReceiver::class.java).setAction(ACTION), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val show = PendingIntent.getActivity(context, REQUEST_CODE, Intent(context, com.adhanreminder.app.MainActivity::class.java).putExtra("openCapture", true), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        context.getSystemService(AlarmManager::class.java).setAlarmClock(AlarmManager.AlarmClockInfo(trigger, show), operation)
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        SchedulingEngine.scheduleExactOrFallback(alarmManager, trigger, show, operation)
     }
 
     fun cancel(context: Context) {

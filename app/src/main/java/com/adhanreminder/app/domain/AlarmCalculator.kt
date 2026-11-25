@@ -11,12 +11,10 @@ object AlarmCalculator {
     fun calculate(
         day: ValidatedDay,
         reminderOffsetMinutes: Int,
-        fajrGapMinutes: Int,
         zoneId: ZoneId,
         now: LocalDateTime,
     ): AlarmCalculation {
         require(reminderOffsetMinutes in 1..60)
-        require(fajrGapMinutes in 0..60)
         val date = day.date ?: runCatching { LocalDate.parse(day.gregorianDate) }.getOrElse { return AlarmCalculation(emptyList(), PrayerKey.entries.toList()) }
         val entries = listOf(
             PrayerKey.FAJR to day.times.fajr,
@@ -32,8 +30,7 @@ object AlarmCalculator {
                 missing += key
             } else {
                 val adhanTime = LocalTime.parse(value)
-                val minutesBefore = if (key == PrayerKey.FAJR) reminderOffsetMinutes + fajrGapMinutes else reminderOffsetMinutes
-                val requestedTrigger = LocalDateTime.of(date, adhanTime).minusMinutes(minutesBefore.toLong())
+                val requestedTrigger = LocalDateTime.of(date, adhanTime).minusMinutes(reminderOffsetMinutes.toLong())
                 val resolved = resolveDst(requestedTrigger, zoneId)
                 if (resolved.toLocalDateTime().isAfter(now)) {
                     plans += AlarmPlan(date, key, adhanTime, resolved.toLocalDateTime(), resolved.toInstant().toEpochMilli())

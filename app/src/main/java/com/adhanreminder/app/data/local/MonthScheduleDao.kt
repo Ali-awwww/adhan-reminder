@@ -18,6 +18,9 @@ interface MonthScheduleDao {
     @Query("SELECT * FROM month_schedules WHERE id = :scheduleId")
     suspend fun getById(scheduleId: Long): MonthSchedule?
 
+    @Query("SELECT COUNT(*) FROM month_schedules")
+    suspend fun count(): Int
+
     @Query("SELECT * FROM month_schedules WHERE status = 'APPROVED' ORDER BY createdAtMillis DESC LIMIT 1")
     suspend fun getLatestApproved(): MonthSchedule?
 

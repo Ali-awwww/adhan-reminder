@@ -11,8 +11,23 @@ import com.adhanreminder.app.update.UpdateScheduler
 class AdhanApplication : Application() {
     val settings by lazy { SettingsRepository(this) }
     val repository: AdhanRepository by lazy { RepositoryFactory.create(this) }
-    val gemini by lazy { GeminiClient() }
-    val ocrService by lazy { GeminiOcrService(gemini) }
+
+    internal var geminiProvider: () -> GeminiClient = { GeminiClient() }
+        set(value) {
+            field = value
+            geminiInstance = null
+        }
+
+    @Volatile
+    private var geminiInstance: GeminiClient? = null
+
+    val gemini: GeminiClient
+        get() = geminiInstance ?: synchronized(this) {
+            geminiInstance ?: geminiProvider().also { geminiInstance = it }
+        }
+
+    val ocrService: GeminiOcrService
+        get() = GeminiOcrService(gemini)
 
     override fun onCreate() {
         super.onCreate()

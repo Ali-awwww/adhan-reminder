@@ -189,10 +189,6 @@ class CaptureViewModel(application: Application) : AndroidViewModel(application)
                     }).toString(),
                 )
             })
-            val extractedNote = parsed.fajrNoteMinutes
-            if (extractedNote != null && extractedNote in 0..60) {
-                app.settings.setPendingFajrNote(scheduleId, extractedNote)
-            }
             PersistedDraftResult(scheduleId, validated.days.size)
         },
     )

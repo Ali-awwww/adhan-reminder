@@ -18,7 +18,6 @@ private val Context.settingsDataStore by preferencesDataStore(name = "settings")
 class SettingsRepository(private val context: Context) {
     private object Keys {
         val reminderOffsetMinutes = intPreferencesKey("reminderOffsetMinutes")
-        val fajrGapMinutes = intPreferencesKey("fajrGapMinutes")
         val rescanReminderDays = intPreferencesKey("rescanReminderDays")
         val alarmVibrate = booleanPreferencesKey("alarmVibrate")
         val darkTheme = booleanPreferencesKey("darkTheme")
@@ -36,16 +35,13 @@ class SettingsRepository(private val context: Context) {
         val scanMonthKey = stringPreferencesKey("scanMonthKey")
         val scanMonthlyCount = intPreferencesKey("scanMonthlyCount")
         val lastScanAttemptMillis = longPreferencesKey("lastScanAttemptMillis")
-        val pendingFajrNoteScheduleId = longPreferencesKey("pendingFajrNoteScheduleId")
-        val pendingFajrNoteMinutes = intPreferencesKey("pendingFajrNoteMinutes")
         val quotaResetEpoch = intPreferencesKey("quotaResetEpoch")
     }
 
     val reminderOffsetMinutes: Flow<Int> = context.settingsDataStore.data.map { it[Keys.reminderOffsetMinutes]?.takeIf { value -> value in 1..60 } ?: 10 }
-    val fajrGapMinutes: Flow<Int> = context.settingsDataStore.data.map { it[Keys.fajrGapMinutes]?.takeIf { value -> value in 0..60 } ?: 20 }
     val rescanReminderDays: Flow<Int> = context.settingsDataStore.data.map { it[Keys.rescanReminderDays]?.takeIf { value -> value in 1..7 } ?: 3 }
     val alarmVibrate: Flow<Boolean> = context.settingsDataStore.data.map { it[Keys.alarmVibrate] ?: true }
-    val darkTheme: Flow<Boolean> = context.settingsDataStore.data.map { it[Keys.darkTheme] ?: true }
+    val darkTheme: Flow<Boolean> = context.settingsDataStore.data.map { it[Keys.darkTheme] ?: false }
     val disclaimerAccepted: Flow<Boolean> = context.settingsDataStore.data.map { it[Keys.disclaimerAccepted] ?: false }
     val lastTestFiredMillis: Flow<Long?> = context.settingsDataStore.data.map { it[Keys.lastTestFiredMillis] }
     val alarmSoundUri: Flow<String?> = context.settingsDataStore.data.map { it[Keys.alarmSoundUri] }
@@ -66,14 +62,7 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
-    val pendingFajrNote: Flow<Pair<Long, Int>?> = context.settingsDataStore.data.map { prefs ->
-        val scheduleId = prefs[Keys.pendingFajrNoteScheduleId]
-        val minutes = prefs[Keys.pendingFajrNoteMinutes]?.takeIf { it in 0..60 }
-        if (scheduleId != null && minutes != null) scheduleId to minutes else null
-    }
-
     suspend fun setReminderOffsetMinutes(value: Int) { requireInRange(value, 1, 60, "reminderOffsetMinutes"); edit { it[Keys.reminderOffsetMinutes] = value } }
-    suspend fun setFajrGapMinutes(value: Int) { requireInRange(value, 0, 60, "fajrGapMinutes"); edit { it[Keys.fajrGapMinutes] = value } }
     suspend fun setRescanReminderDays(value: Int) { requireInRange(value, 1, 7, "rescanReminderDays"); edit { it[Keys.rescanReminderDays] = value } }
     suspend fun setAlarmVibrate(value: Boolean) { edit { it[Keys.alarmVibrate] = value } }
     suspend fun setDarkTheme(value: Boolean) { edit { it[Keys.darkTheme] = value } }
@@ -119,21 +108,6 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    suspend fun setPendingFajrNote(scheduleId: Long, minutes: Int) {
-        requireInRange(minutes, 0, 60, "pendingFajrNoteMinutes")
-        edit { prefs ->
-            prefs[Keys.pendingFajrNoteScheduleId] = scheduleId
-            prefs[Keys.pendingFajrNoteMinutes] = minutes
-        }
-    }
-
-    suspend fun clearPendingFajrNote() {
-        edit { prefs ->
-            prefs.remove(Keys.pendingFajrNoteScheduleId)
-            prefs.remove(Keys.pendingFajrNoteMinutes)
-        }
-    }
-
     suspend fun clearUserData() {
         edit { preferences ->
             preferences.remove(Keys.disclaimerAccepted)
@@ -142,8 +116,6 @@ class SettingsRepository(private val context: Context) {
             preferences.remove(Keys.alarmSoundUri)
             preferences.remove(Keys.ringChannelVersion)
             preferences.remove(Keys.ringFullScreenBlocked)
-            preferences.remove(Keys.pendingFajrNoteScheduleId)
-            preferences.remove(Keys.pendingFajrNoteMinutes)
         }
     }
 

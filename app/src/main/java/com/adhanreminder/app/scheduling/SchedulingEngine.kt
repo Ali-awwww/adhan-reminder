@@ -129,12 +129,11 @@ class SchedulingEngine(
 
     private suspend fun scheduleDays(scheduleId: Long, days: List<PrayerDay>): Int {
         val offset = settings.reminderOffsetMinutes.first()
-        val gap = settings.fajrGapMinutes.first()
         val zone = ZoneId.systemDefault()
-        val now = LocalDateTime.now(zone)
+        val now = nowProvider(zone)
         var count = 0
         days.forEach { day ->
-            val calculation = AlarmCalculator.calculate(day.asValidated(), offset, gap, zone, now)
+            val calculation = AlarmCalculator.calculate(day.asValidated(), offset, zone, now)
             calculation.plans.forEach { plan ->
                 val epochDay = runCatching { LocalDate.parse(day.gregorianDate).toEpochDay().toInt().coerceAtLeast(1) }.getOrDefault(1)
                 val requestCode = epochDay * 10 + plan.prayerKey.ordinal
@@ -175,7 +174,7 @@ class SchedulingEngine(
             Intent(context, com.adhanreminder.app.MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(alarm.triggerAtMillis, show), operation)
+        scheduleExactOrFallback(alarmManager, alarm.triggerAtMillis, show, operation)
     }
 
     private fun cancelAlarm(alarm: ScheduledAlarm) {
@@ -205,5 +204,29 @@ class SchedulingEngine(
     companion object {
         private const val TAG = "SchedulingEngine"
         private val globalMutex = Mutex()
+        internal var nowProvider: (ZoneId) -> LocalDateTime = { LocalDateTime.now(it) }
+
+        fun canScheduleExactAlarms(context: Context): Boolean {
+            val manager = context.getSystemService(AlarmManager::class.java) ?: return false
+            return manager.canScheduleExactAlarms()
+        }
+
+        @SuppressLint("MissingPermission")
+        fun scheduleExactOrFallback(
+            alarmManager: AlarmManager,
+            triggerAtMillis: Long,
+            showIntent: PendingIntent,
+            operation: PendingIntent,
+        ) {
+            if (alarmManager.canScheduleExactAlarms()) {
+                try {
+                    alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAtMillis, showIntent), operation)
+                    return
+                } catch (e: SecurityException) {
+                    if (BuildConfig.DEBUG) android.util.Log.w(TAG, "Exact alarm denied, falling back", e)
+                }
+            }
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, operation)
+        }
     }
 }
