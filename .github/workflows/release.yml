@@ -9,7 +9,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-release:
@@ -85,7 +85,13 @@ jobs:
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
-
+      - name: Attach signed APK to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release upload "${{ github.ref_name }}" app/build/outputs/apk/release/app-release.apk --clobber
       - name: Remove signing files
         if: always()
         shell: bash
