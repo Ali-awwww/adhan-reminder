@@ -104,4 +104,5 @@ dependencies {
     testImplementation("androidx.test:core-ktx:1.6.1")
     testImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+releaseImplementation("androidx.compose.ui:ui-test-manifest")
 }
