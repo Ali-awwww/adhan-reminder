@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.adhanreminder.app.AdhanApplication
@@ -74,6 +75,8 @@ fun SettingsScreen(
     val demoMode by settings.demoMode.collectAsState(initial = false)
     var backupMessage by remember { mutableStateOf<String?>(null) }
     var rescheduleMessage by remember { mutableStateOf<String?>(null) }
+    var appsLinkMessage by remember { mutableStateOf<String?>(null) }
+    val browserErrorText = stringResource(R.string.our_apps_browser_error)
 
     val soundPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -269,6 +272,42 @@ fun SettingsScreen(
             }
         }
 
+        SettingsCard("عن التطبيق") {
+            OutlinedButton(
+                onClick = {
+                    appsLinkMessage = null
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(OUR_APPS_URL)).apply {
+                        addCategory(Intent.CATEGORY_BROWSABLE)
+                        if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    runCatching { context.startActivity(intent) }
+                        .onFailure { appsLinkMessage = browserErrorText }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = AdhanDimensions.buttonHeight)
+                    .testTag("settings_our_apps_button"),
+                shape = RoundedCornerShape(AdhanDimensions.fieldRadius),
+                border = BorderStroke(AdhanDimensions.border, MaterialTheme.colorScheme.primary),
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_open_in_new),
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.our_apps),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            appsLinkMessage?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
+        }
+
         Text(
             "الإصدار ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             style = MaterialTheme.typography.bodySmall,
@@ -284,6 +323,8 @@ fun SettingsScreen(
         }
     }
 }
+
+private const val OUR_APPS_URL = "https://apps-showcase.pages.dev"
 
 @Composable
 private fun SettingsCard(title: String, content: @Composable () -> Unit) {

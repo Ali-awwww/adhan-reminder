@@ -1,1 +1,5 @@
-<resources><string name="app_name">مذكّر الأذان</string></resources>
+<resources>
+    <string name="app_name">مذكّر الأذان</string>
+    <string name="our_apps">تطبيقاتنا</string>
+    <string name="our_apps_browser_error">لا يوجد متصفح متاح لفتح الرابط.</string>
+</resources>
